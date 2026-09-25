@@ -1,17 +1,32 @@
-require('./helpers');
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { loadCommands } = require('../src/commands');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { commandDefinitions } from '../supabase/functions/hopkostki-bot/lib/commands.js';
 
-test('wszystkie komendy mają poprawne definicje slash', () => {
-  const commands = loadCommands();
-  const names = [...commands.keys()].sort();
-  assert.deepEqual(names, ['ban', 'clear', 'historia', 'kick', 'lock', 'pomoc', 'slowmode', 'sprawa', 'timeout', 'unban', 'unlock', 'untimeout', 'warn']);
-  for (const command of commands.values()) {
-    const json = command.data.toJSON();
-    assert.ok(json.description.length <= 100, json.name);
-    assert.ok(JSON.stringify(json).length < 8000, json.name);
+const NAME = /^[\p{Ll}\p{Lm}\p{Lo}\p{N}_-]{1,32}$/u;
+
+function checkOptions(options = [], where) {
+  let optionalSeen = false;
+  assert.ok(options.length <= 25, `${where}: max 25 opcji`);
+  for (const o of options) {
+    assert.match(o.name, NAME, `${where}: nazwa ${o.name}`);
+    assert.ok(o.description.length >= 1 && o.description.length <= 100, `${where}.${o.name}: opis`);
+    if (o.type === 1) checkOptions(o.options, `${where} ${o.name}`);
+    else {
+      if (o.required) assert.equal(optionalSeen, false, `${where}: wymagana opcja ${o.name} po opcjonalnej`);
+      else optionalSeen = true;
+      assert.ok((o.choices ?? []).length <= 25);
+    }
   }
-  const warn = commands.get('warn').data.toJSON();
-  assert.deepEqual(warn.options.map((o) => o.name), ['dodaj', 'status', 'usun', 'wyczysc', 'ranking']);
+}
+
+test('definicje komend spełniają zasady API Discorda', () => {
+  const defs = commandDefinitions();
+  assert.deepEqual(defs.map((d) => d.name).sort(), ['ban', 'clear', 'historia', 'kick', 'lock', 'pomoc', 'sprawa', 'slowmode', 'timeout', 'unban', 'unlock', 'untimeout', 'warn'].sort());
+  for (const def of defs) {
+    assert.match(def.name, NAME);
+    assert.ok(def.description.length <= 100);
+    assert.deepEqual(def.contexts, [0]);
+    checkOptions(def.options, def.name);
+  }
+  assert.ok(JSON.stringify(defs).length < 32_000);
 });

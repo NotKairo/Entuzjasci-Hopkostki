@@ -1,19 +1,17 @@
 {
   "name": "entuzjasci-hopkostki-bot",
-  "version": "1.0.0",
-  "description": "Bot moderacyjny Discord dla serwera Entuzjaści Hopkostki (bany, timeouty, kicki, ostrzeżenia, panel konfiguracyjny)",
-  "main": "src/index.js",
+  "version": "2.0.0",
+  "description": "Bot moderacyjny Discord dla serwera Entuzjaści Hopkostki — hostowany na Supabase (Edge Functions + Postgres) z lokalnym panelem",
   "private": true,
+  "type": "module",
   "scripts": {
-    "start": "node src/index.js",
+    "panel": "node panel/server.js",
     "test": "node --test"
   },
   "engines": {
     "node": ">=18.17"
   },
-  "dependencies": {
-    "discord.js": "^14.27.0",
-    "dotenv": "^18.0.4",
-    "express": "^5.2.1"
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8"
   }
 }

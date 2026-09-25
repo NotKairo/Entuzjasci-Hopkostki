@@ -1,21 +1,16 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { formatDuration, toMs, MAX_TIMEOUT_MS, UNIT_CHOICES } = require('../src/lib/duration');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { formatDuration, toMs, MAX_TIMEOUT_MS, UNIT_CHOICES } from '../supabase/functions/hopkostki-bot/lib/duration.js';
 
 test('polska odmiana jednostek czasu', () => {
-  assert.equal(formatDuration(1, 'd'), '1 dzień');
-  assert.equal(formatDuration(2, 'd'), '2 dni');
-  assert.equal(formatDuration(14, 'd'), '14 dni');
-  assert.equal(formatDuration(1, 'm'), '1 minuta');
-  assert.equal(formatDuration(3, 'm'), '3 minuty');
-  assert.equal(formatDuration(5, 'm'), '5 minut');
-  assert.equal(formatDuration(12, 'h'), '12 godzin');
-  assert.equal(formatDuration(22, 'h'), '22 godziny');
-  assert.equal(formatDuration(2, 'w'), '2 tygodnie');
-  assert.equal(formatDuration(5, 'w'), '5 tygodni');
-  assert.equal(formatDuration(1, 'mo'), '1 miesiąc');
-  assert.equal(formatDuration(3, 'mo'), '3 miesiące');
-  assert.equal(formatDuration(6, 'mo'), '6 miesięcy');
+  const cases = [
+    [1, 'd', '1 dzień'], [2, 'd', '2 dni'], [14, 'd', '14 dni'],
+    [1, 'm', '1 minuta'], [3, 'm', '3 minuty'], [5, 'm', '5 minut'],
+    [12, 'h', '12 godzin'], [22, 'h', '22 godziny'],
+    [2, 'w', '2 tygodnie'], [5, 'w', '5 tygodni'],
+    [1, 'mo', '1 miesiąc'], [3, 'mo', '3 miesiące'], [6, 'mo', '6 miesięcy'],
+  ];
+  for (const [n, unit, expected] of cases) assert.equal(formatDuration(n, unit), expected);
 });
 
 test('przeliczanie na milisekundy i limit timeoutu', () => {

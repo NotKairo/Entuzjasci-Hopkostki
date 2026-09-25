@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel — Entuzjaści Hopkostki</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🫓</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app" class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <img id="bot-avatar" class="avatar" alt="" hidden>
+        <span id="bot-logo" class="logo">🫓</span>
+        <div>
+          <strong id="bot-name">Hopkostki Bot</strong>
+          <small id="bot-state" class="state offline">łączenie…</small>
+        </div>
+      </div>
+      <nav id="nav">
+        <a href="#pulpit" data-view="pulpit">📊 <span>Pulpit</span></a>
+        <a href="#ustawienia" data-view="ustawienia">⚙️ <span>Ustawienia</span></a>
+        <a href="#embedy" data-view="embedy">🎨 <span>Wygląd embedów</span></a>
+        <a href="#ostrzezenia" data-view="ostrzezenia">⚠️ <span>Ostrzeżenia</span></a>
+        <a href="#sprawy" data-view="sprawy">🗂️ <span>Sprawy</span></a>
+        <a href="#bany" data-view="bany">⛔ <span>Tymczasowe bany</span></a>
+      </nav>
+      <a class="side-link" href="https://supabase.com/dashboard/project/ucjmbdogtzztrkorqzjq" target="_blank" rel="noopener">☁️ Supabase</a>
+    </aside>
+
+    <main>
+      <div id="conn-error" class="banner hidden"></div>
+      <!-- PULPIT -->
+      <section id="view-pulpit" class="view">
+        <header class="view-head">
+          <h2>Pulpit</h2>
+          <p class="muted">Szybki podgląd bota i serwera.</p>
+        </header>
+        <div class="grid two">
+          <div class="card row-card">
+            <img id="guild-icon" class="avatar lg" alt="" hidden>
+            <div>
+              <div class="label">Serwer</div>
+              <div id="guild-name" class="big-text">—</div>
+              <div id="guild-members" class="muted"></div>
+            </div>
+          </div>
+          <div class="card row-card">
+            <div>
+              <div class="label">Bot na Supabase</div>
+              <div id="status-text" class="big-text">—</div>
+              <div id="status-extra" class="muted"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h3>🔌 Połączenie z Discordem</h3>
+            <button type="button" class="btn ghost small" id="setup-run">↻ Sprawdź i zarejestruj komendy</button>
+          </div>
+          <ul class="checklist" id="setup-list"></ul>
+        </div>
+        <div id="stats" class="stats"></div>
+        <div class="card">
+          <h3>Ostatnie sprawy</h3>
+          <div class="table-wrap"><table class="table" id="recent-table"></table></div>
+        </div>
+      </section>
+
+      <!-- USTAWIENIA -->
+      <section id="view-ustawienia" class="view">
+        <header class="view-head">
+          <h2>Ustawienia</h2>
+          <p class="muted">Zmiany zapisujesz przyciskiem na dole ekranu. Działają od razu, bez restartu bota.</p>
+        </header>
+        <div class="grid two">
+          <div class="card">
+            <h3>📢 Kanały</h3>
+            <label class="field">
+              <span>Kanał logów moderacji</span>
+              <select data-path="modLogChannelId" data-channel-select="none"></select>
+              <small>Pełne szczegóły każdej akcji: punkty, status DM, link do wiadomości.</small>
+            </label>
+            <label class="field">
+              <span>Kanał ogłoszeń o karach</span>
+              <select data-path="announceChannelId" data-channel-select="command"></select>
+              <small>Domyślnie embed pojawia się tam, gdzie użyto komendy.</small>
+            </label>
+          </div>
+          <div class="card">
+            <h3>🛡️ Role moderatorów</h3>
+            <p class="muted small">Osoby z tymi rolami mogą używać komend bota. Administratorzy i osoby z uprawnieniami Discorda (np. „Banowanie członków”) mają dostęp zawsze. Jeśli rola nie ma uprawnień Discorda, zezwól jej też na komendy w <em>Ustawienia serwera → Integracje</em>.</p>
+            <div id="roles-list" class="roles-list"></div>
+          </div>
+          <div class="card">
+            <h3>✉️ Wiadomości</h3>
+            <label class="toggle"><input type="checkbox" data-path="mentionTarget"><span></span>Oznaczaj ukaranego użytkownika na kanale</label>
+            <label class="toggle"><input type="checkbox" data-path="dmUsers"><span></span>Wysyłaj DM do ukaranego użytkownika</label>
+            <label class="toggle"><input type="checkbox" data-path="dmShowModerator"><span></span>Pokazuj w DM, kto nałożył karę</label>
+            <label class="field">
+              <span>Dopisek w DM (np. jak się odwołać)</span>
+              <textarea data-path="appealText" rows="3" maxlength="1500"></textarea>
+            </label>
+          </div>
+          <div class="card">
+            <h3>🫓 Reakcja na odpowiedzi</h3>
+            <p class="muted small">Gdy ktoś odpowie (reply) na wiadomość bota o karze, bot doda pod jego odpowiedzią tę reakcję.</p>
+            <label class="toggle"><input type="checkbox" data-path="replyReaction.enabled"><span></span>Włączone</label>
+            <label class="field">
+              <span>Emoji (zwykłe lub własne w formacie <code>&lt;:nazwa:id&gt;</code>)</span>
+              <input type="text" data-path="replyReaction.emoji" maxlength="100">
+            </label>
+            <div class="chips" id="emoji-picks"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- EMBEDY -->
+      <section id="view-embedy" class="view">
+        <header class="view-head">
+          <h2>Wygląd embedów</h2>
+          <p class="muted">Każda komenda ma własny styl. Podgląd odświeża się na żywo.</p>
+        </header>
+        <div class="tabs" id="embed-tabs"></div>
+        <div class="grid editor">
+          <div class="card">
+            <div class="grid two tight">
+              <label class="field"><span>Kolor</span>
+                <div class="color-row"><input type="color" id="embed-color-picker"><input type="text" data-embed-field="color" maxlength="7"></div>
+              </label>
+              <label class="field"><span>Emoji</span><input type="text" data-embed-field="emoji" maxlength="100"></label>
+            </div>
+            <h4>Na kanale</h4>
+            <label class="field"><span>Tytuł</span><input type="text" data-embed-field="title" maxlength="250"></label>
+            <label class="field"><span>Opis</span><textarea data-embed-field="description" rows="2"></textarea></label>
+            <h4>Wiadomość prywatna (DM)</h4>
+            <label class="field"><span>Tytuł</span><input type="text" data-embed-field="dmTitle" maxlength="250"></label>
+            <label class="field"><span>Opis</span><textarea data-embed-field="dmDescription" rows="2"></textarea></label>
+            <div class="placeholders">
+              <span class="muted small">Kliknij, żeby wstawić zmienną:</span>
+              <div class="chips" id="placeholder-chips"></div>
+            </div>
+            <button type="button" class="btn ghost" id="embed-reset">↺ Przywróć domyślny wygląd tej akcji</button>
+          </div>
+          <div class="previews">
+            <div class="preview-label">Podgląd na kanale</div>
+            <div class="discord" id="preview-channel"></div>
+            <div class="preview-label">Podgląd w DM</div>
+            <div class="discord" id="preview-dm"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- OSTRZEŻENIA -->
+      <section id="view-ostrzezenia" class="view">
+        <header class="view-head">
+          <h2>Ostrzeżenia</h2>
+          <p class="muted">Punkty widzi tylko moderacja. Każde ostrzeżenie ma własne odliczanie do wygaśnięcia.</p>
+        </header>
+        <div class="grid two">
+          <div class="card">
+            <h3>⚙️ Ustawienia ostrzeżeń</h3>
+            <label class="field"><span>Domyślna liczba punktów za ostrzeżenie</span><input type="number" min="1" max="100" data-path="warns.defaultPoints"></label>
+            <label class="field"><span>Po ilu dniach ostrzeżenie wygasa (0 = nigdy)</span><input type="number" min="0" max="3650" data-path="warns.expiryDays">
+              <small>Dotyczy nowych ostrzeżeń — już nadane zachowują swoje odliczanie.</small></label>
+            <label class="toggle"><input type="checkbox" data-path="warns.showPointsToUser"><span></span>Pokazuj punkty ukaranemu (kanał + DM)</label>
+          </div>
+          <div class="card">
+            <h3>🚨 Automatyczne kary</h3>
+            <label class="toggle"><input type="checkbox" data-path="escalation.enabled"><span></span>Włącz automatyczne kary po przekroczeniu progu</label>
+            <p class="muted small">„Alert” tylko pinguje role moderatorów na kanale logów — decyzję podejmujecie sami.</p>
+            <div class="table-wrap"><table class="table compact" id="rules-table"></table></div>
+            <button type="button" class="btn ghost" id="add-rule">+ Dodaj próg</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h3>📋 Aktywne ostrzeżenia</h3>
+            <input type="search" id="warn-search" placeholder="Szukaj po nicku lub ID…">
+          </div>
+          <div id="warn-users"></div>
+        </div>
+      </section>
+
+      <!-- SPRAWY -->
+      <section id="view-sprawy" class="view">
+        <header class="view-head">
+          <h2>Sprawy</h2>
+          <p class="muted">Historia wszystkich akcji moderacyjnych.</p>
+        </header>
+        <div class="card">
+          <div class="filters">
+            <input type="search" id="case-search" placeholder="Nick lub ID użytkownika…">
+            <select id="case-type">
+              <option value="">Wszystkie typy</option>
+              <option value="ban">Bany</option>
+              <option value="unban">Unbany</option>
+              <option value="kick">Kicki</option>
+              <option value="timeout">Timeouty</option>
+              <option value="untimeout">Zdjęcia timeoutu</option>
+              <option value="warn">Ostrzeżenia</option>
+            </select>
+          </div>
+          <div class="table-wrap"><table class="table" id="cases-table"></table></div>
+          <div class="pager" id="cases-pager"></div>
+        </div>
+      </section>
+
+      <!-- TYMCZASOWE BANY -->
+      <section id="view-bany" class="view">
+        <header class="view-head">
+          <h2>Tymczasowe bany</h2>
+          <p class="muted">Bot sam zdejmie bana, gdy skończy się odliczanie.</p>
+        </header>
+        <div class="card">
+          <div class="table-wrap"><table class="table" id="bans-table"></table></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="savebar" class="savebar hidden">
+    <span>Masz niezapisane zmiany</span>
+    <div>
+      <button type="button" class="btn ghost" id="discard">Odrzuć</button>
+      <button type="button" class="btn success" id="save">Zapisz zmiany</button>
+    </div>
+  </div>
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

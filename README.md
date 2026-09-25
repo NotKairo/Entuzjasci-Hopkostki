@@ -1,9 +1,65 @@
 # 🫓 Entuzjaści Hopkostki — bot moderacyjny
 
-Bot moderacyjny na Discorda dla serwera **Entuzjaści Hopkostki**: bany i timeouty na określony czas, kicki,
-ostrzeżenia z punktami (znikają same po 60 dniach) i panel konfiguracyjny na `http://localhost:3000`.
+Bot moderacyjny na Discorda dla serwera **Entuzjaści Hopkostki**. Działa 24/7 na **Supabase**, więc nie
+musisz trzymać włączonego komputera. Masz do niego lokalny panel konfiguracyjny pod `http://localhost:3000`.
 
-## Funkcje
+```
+Discord ──(komendy /ban, /warn…)──▶ Supabase Edge Function "hopkostki-bot" ──▶ Postgres (sprawy, ostrzeżenia, ustawienia)
+                                           ▲                     ▲
+                        pg_cron co 30 s ───┘                     └─── lokalny panel http://localhost:3000
+            (wygasanie banów i ostrzeżeń, reakcje 🫓)
+```
+
+## Szybki start (3 kroki)
+
+Projekt Supabase **„Entuzjaści Hopkostki”** (`ucjmbdogtzztrkorqzjq`) jest już utworzony. Baza, funkcja bota
+i harmonogram są wdrożone. Brakuje tylko Twoich sekretów:
+
+1. **Zresetuj token bota:** https://discord.com/developers/applications → Twoja aplikacja → **Bot** → **Reset Token**.
+   Token, który był w czacie, uznaj za spalony.
+2. **Dodaj sekrety w Supabase:** https://supabase.com/dashboard/project/ucjmbdogtzztrkorqzjq/functions/secrets
+   | Nazwa | Wartość |
+   | --- | --- |
+   | `DISCORD_TOKEN` | nowy token bota |
+   | `PANEL_PASSWORD` | dowolne mocne hasło do panelu |
+   | `GUILD_ID` *(opcjonalnie)* | ID serwera; bez niego bot bierze pierwszy serwer, na którym jest |
+3. **Poczekaj około minuty.** Harmonogram sam:
+   - zarejestruje komendy slash na serwerze,
+   - ustawi w Discordzie **Interactions Endpoint URL** na `https://ucjmbdogtzztrkorqzjq.supabase.co/functions/v1/hopkostki-bot`.
+
+   Jeśli ustawienie adresu się nie uda (widać to w panelu), wklej go ręcznie w Developer Portal →
+   **General Information** → **Interactions Endpoint URL** → **Save**.
+
+Jeśli bota nie ma jeszcze na serwerze, zaproś go tym linkiem (podmień `TWOJE_CLIENT_ID` na *Application ID*):
+```
+https://discord.com/oauth2/authorize?client_id=TWOJE_CLIENT_ID&scope=bot+applications.commands&permissions=1374658325590
+```
+Potem przesuń rolę bota **wyżej** niż role osób, które ma karać (Ustawienia serwera → Role).
+
+## Panel konfiguracyjny (localhost)
+
+Panel działa u Ciebie na komputerze i łączy się z botem na Supabase. Potrzebujesz Node.js 18.17+ (https://nodejs.org).
+
+```bash
+cp .env.example .env       # Windows: copy .env.example .env
+# wpisz w .env PANEL_PASSWORD (to samo co w Supabase)
+npm run panel
+```
+
+Następnie otwórz **http://localhost:3000**. Panel nie wymaga `npm install`. W panelu są:
+- **Pulpit:** status bota, lista kontrolna połączenia z Discordem, statystyki i ostatnie sprawy.
+  Przycisk „Sprawdź i zarejestruj komendy” wymusza konfigurację od razu.
+- **Ustawienia:** kanał logów, kanał ogłoszeń, role moderatorów, DM, dopisek o odwołaniach i emoji reakcji.
+- **Wygląd embedów:** edycja każdej akcji z podglądem na żywo w stylu Discorda (na kanale i w DM).
+- **Ostrzeżenia:** czas wygasania (domyślnie 60 dni), domyślne punkty, progi automatycznych kar
+  i wszystkie aktywne ostrzeżenia z odliczaniem na żywo oraz przyciskiem „Usuń”.
+- **Sprawy:** przeszukiwalna historia wszystkich akcji.
+- **Tymczasowe bany:** odliczanie do końca bana i przycisk „Odbanuj teraz”.
+
+Zmiany zapisujesz przyciskiem na dole i działają od razu. Panel nasłuchuje tylko na `127.0.0.1`, a hasło
+dopisuje sam do każdego zapytania do Supabase.
+
+## Komendy
 
 | Komenda | Co robi |
 | --- | --- |
@@ -13,7 +69,7 @@ ostrzeżenia z punktami (znikają same po 60 dniach) i panel konfiguracyjny na `
 | `/untimeout uzytkownik [powod]` | Zdejmuje wyciszenie. |
 | `/kick uzytkownik powod` | Wyrzuca z serwera. |
 | `/warn dodaj uzytkownik powod [punkty]` | Ostrzeżenie z punktami. |
-| `/warn status uzytkownik` | Liczba ostrzeżeń i punktów, pasek poziomu, odliczanie do wygaśnięcia każdego ostrzeżenia (widzi tylko osoba, która użyła komendy). |
+| `/warn status uzytkownik` | Ostrzeżenia, punkty, pasek poziomu i odliczanie do wygaśnięcia każdego ostrzeżenia (widzi tylko moderator). |
 | `/warn usun numer` · `/warn wyczysc uzytkownik` | Usuwanie ostrzeżeń. |
 | `/warn ranking` | Kto ma najwięcej punktów, czyli kto najbardziej przegina. |
 | `/historia uzytkownik` | Wszystkie kary danej osoby. |
@@ -24,93 +80,58 @@ ostrzeżenia z punktami (znikają same po 60 dniach) i panel konfiguracyjny na `
 | `/pomoc` | Lista komend. |
 
 **Jednostki czasu** wybierasz z listy: minuty, godziny, dni, tygodnie albo miesiące (30 dni). W wiadomości
-czas jest odmieniony po polsku, np. „1 dzień”, „2 tygodnie”, „5 miesięcy”, a obok widać datę wygaśnięcia
-i odliczanie Discorda („za 14 dni”).
+czas jest odmieniony po polsku („1 dzień”, „2 tygodnie”), a obok widać datę wygaśnięcia i odliczanie Discorda.
 
-**Każda kara** (ban, timeout, kick, ostrzeżenie):
-- ma własny embed ostylizowany pod komendę: kolor, emoji, tytuł i opis. Wszystko to zmienisz w panelu.
-- pokazuje, **dlaczego** ktoś dostał karę (powód), **na ile** (czas i data wygaśnięcia), **kiedy** ją dostał i od kogo.
-- jest publikowana na kanale, na którym użyto komendy (albo na wybranym kanale ogłoszeń), i **oznacza ukaranego użytkownika**.
-- trafia do ukaranego **prywatnie w DM**. Przy banie i kicku DM idzie jeszcze przed wyrzuceniem, bo potem bot nie miałby jak do niego napisać.
-- dostaje numer sprawy i jest zapisywana w historii oraz na kanale logów moderacji.
-- dostaje reakcję 🫓 (`:flatbread:`) pod każdą odpowiedzią (reply) na wiadomość o karze.
+**Każda kara:**
+- ma własny, konfigurowalny embed na kanale;
+- **oznacza ukaranego** i trafia do niego w **DM** (przy banie i kicku DM idzie przed wyrzuceniem);
+- pokazuje powód, czas, datę wygaśnięcia i numer sprawy;
+- ląduje w logach moderacji.
+
+Pod każdą odpowiedzią na wiadomość o karze bot dodaje reakcję 🫓 (`:flatbread:`).
 
 **Ostrzeżenia:**
-- mają punkty, które widzi tylko moderacja. Użytkownik dostaje ostrzeżenie bez informacji o punktach (można to zmienić w panelu).
-- **każde ostrzeżenie wygasa samo po 60 dniach** i ma własne odliczanie liczone od chwili nadania. Odliczanie widać w `/warn status`, w embedzie ostrzeżenia i na żywo w panelu. Po wygaśnięciu bot usuwa ostrzeżenie i zapisuje to w logach. Liczbę dni zmienisz w panelu (0 oznacza, że ostrzeżenia nie wygasają).
-- opcjonalnie działają **automatyczne kary** po przekroczeniu progu punktów, np. 10 pkt → timeout na 1 dzień, 20 pkt → ban na 7 dni. Zamiast kary próg może też tylko wysłać alert, który pinguje moderatorów.
+- mają punkty, które widzi tylko moderacja;
+- **każde wygasa samo po 60 dniach**, z własnym odliczaniem;
+- opcjonalnie działają automatyczne kary za przekroczenie progu punktów, np. 10 pkt → timeout na 1 dzień.
 
 **Zabezpieczenia:**
-- nie da się ukarać siebie, bota, właściciela serwera ani osoby z rolą równą lub wyższą od swojej.
-- gdy Discord odrzuci karę (np. przez brak uprawnień), bot wycofuje sprawę i wysłany DM.
-- ręczne zdjęcie bana w ustawieniach serwera usuwa go z listy tymczasowych banów.
+- nie da się ukarać siebie, bota, właściciela serwera ani osoby z rolą równą lub wyższą;
+- gdy Discord odrzuci karę, bot wycofuje sprawę i wysłany DM;
+- każde żądanie od Discorda jest weryfikowane podpisem Ed25519.
 
-## Panel konfiguracyjny (localhost)
+## Co działa inaczej niż w zwykłym bocie
 
-Po uruchomieniu bota otwórz **http://localhost:3000**. W panelu są:
-- **Pulpit:** status bota, statystyki i ostatnie sprawy.
-- **Ustawienia:** kanał logów, kanał ogłoszeń, role moderatorów, DM, dopisek o odwołaniach i emoji reakcji.
-- **Wygląd embedów:** edycja każdej akcji z podglądem na żywo w stylu Discorda (na kanale i w DM).
-- **Ostrzeżenia:** czas wygasania, domyślne punkty, progi automatycznych kar i lista wszystkich aktywnych ostrzeżeń z odliczaniem oraz przyciskiem „Usuń”.
-- **Sprawy:** przeszukiwalna historia wszystkich akcji.
-- **Tymczasowe bany:** odliczanie do końca bana i przycisk „Odbanuj teraz”.
-
-Zmiany działają od razu, bez restartu. Panel domyślnie nasłuchuje tylko na `127.0.0.1`, więc otworzysz go
-wyłącznie z komputera, na którym działa bot. Hasło ustawisz w `PANEL_PASSWORD`.
-
-## Instalacja
-
-Potrzebujesz **Node.js 18.17 lub nowszego** (zalecany 22 LTS): https://nodejs.org
-
-1. **Utwórz bota albo użyj istniejącego:** https://discord.com/developers/applications → Twoja aplikacja → **Bot** → **Reset Token** i skopiuj token.
-   Bot nie potrzebuje żadnych „Privileged Gateway Intents”.
-2. **Zaproś bota na serwer.** Otwórz poniższy link, podmieniając `TWOJE_CLIENT_ID` na *Application ID* z zakładki General Information:
-   ```
-   https://discord.com/oauth2/authorize?client_id=TWOJE_CLIENT_ID&scope=bot+applications.commands&permissions=1374658325590
-   ```
-   Link nadaje uprawnienia: banowanie, wyrzucanie, timeout, zarządzanie wiadomościami, kanałami i uprawnieniami kanałów (do `/lock`), wysyłanie wiadomości, embedy i reakcje.
-3. **Przenieś rolę bota wyżej** (Ustawienia serwera → Role). Bot może karać tylko osoby z rolami **niższymi** niż jego własna.
-4. **Skonfiguruj i uruchom:**
-   ```bash
-   npm install
-   cp .env.example .env      # na Windowsie: copy .env.example .env
-   # uzupełnij w .env: DISCORD_TOKEN i GUILD_ID
-   npm start
-   ```
-5. Wejdź na http://localhost:3000 i wybierz kanał logów moderacji.
-
-> ⚠️ **Token to hasło do bota.** Trzymaj go tylko w pliku `.env`, który jest w `.gitignore`. Nie wklejaj go
-> na czat, do kodu ani na GitHuba. Jeśli wyciekł, od razu kliknij **Reset Token** w Developer Portalu.
-
-## Konfiguracja `.env`
-
-| Zmienna | Opis |
-| --- | --- |
-| `DISCORD_TOKEN` | Token bota (wymagany). |
-| `GUILD_ID` | ID serwera. Komendy rejestrują się wtedy natychmiast, a bot działa tylko na tym serwerze. |
-| `PANEL_PORT` | Port panelu (domyślnie `3000`). |
-| `PANEL_HOST` | `127.0.0.1` (domyślnie, dostęp tylko z tego komputera) lub `0.0.0.0` (dostęp z sieci, wymaga hasła). |
-| `PANEL_PASSWORD` | Hasło do panelu (opcjonalne). |
-
-Dane (sprawy, ostrzeżenia, tymczasowe bany, ustawienia) są zapisywane w `data/db.json`. Zrób kopię tego pliku,
-jeśli przenosisz bota na inny komputer.
+Supabase uruchamia kod na żądanie i nie trzyma stałego połączenia z Discordem (gateway), dlatego:
+- **Bot jest widoczny jako offline** na liście członków. Komendy działają normalnie.
+- **Reakcja 🫓 pojawia się z opóźnieniem do ~30 s.** Bot sprawdza odpowiedzi co 30 sekund, a nie natychmiast.
+- **Darmowy plan Supabase wstrzymuje projekt po tygodniu bez aktywności.** Wtedy wejdź na dashboard i kliknij „Restore”.
+  Regularne używanie komend liczy się jako aktywność.
 
 ## Dla deweloperów
 
 ```bash
-npm test   # testy logiki kar, ostrzeżeń, wygasania, konfiguracji i panelu (bez łączenia z Discordem)
+npm install   # tylko do testów (PGlite = Postgres w pamięci)
+npm test      # testy kar, ostrzeżeń, wygasania, podpisów, crona, panelu i SQL na prawdziwym Postgresie
 ```
 
 Struktura:
 ```
-src/
-  index.js              start bota, rejestracja komend, panel
-  commands/             komendy slash (jeden plik = jedna komenda)
-  events/               interakcje, reakcja 🫓 na odpowiedzi, ręczne unbany
-  lib/moderation.js     wspólny przebieg każdej kary (DM → akcja → ogłoszenie → log) + automatyczne kary
-  lib/embeds.js         wygląd embedów (na podstawie konfiguracji)
-  lib/db.js             baza w pliku JSON
-  lib/scheduler.js      co 30 s: wygasanie tymczasowych banów i ostrzeżeń
-  config/defaults.js    domyślne ustawienia
-  panel/                serwer panelu (Express) + frontend
+supabase/
+  migrations/                     schemat "bot" + zadanie pg_cron
+  functions/hopkostki-bot/
+    index.ts                      wejście funkcji Edge (Deno): postgres.js + sekrety
+    lib/app.js                    router: / (Discord), /cron, /panel/*, /health
+    lib/interactions.js           obsługa interakcji (odroczone odpowiedzi + praca w tle)
+    lib/commands.js               definicje i obsługa komend slash
+    lib/moderation.js             wspólny przebieg każdej kary + automatyczne kary
+    lib/cron.js                   rejestracja komend, wygasanie, reakcje 🫓
+    lib/panel.js                  API panelu
+    lib/store.js                  zapytania SQL
+    lib/embeds.js, defaults.js    wygląd i domyślne ustawienia
+panel/
+  server.js                       lokalny panel (bez zależności) — przekazuje /api do Supabase
+  public/                         frontend panelu
 ```
+
+Wdrożenie zmian: `supabase functions deploy hopkostki-bot --no-verify-jwt` (Supabase CLI) albo przez MCP.

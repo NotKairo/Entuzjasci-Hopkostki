@@ -1,108 +1,88 @@
-require('./helpers');
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { Collection, ChannelType } = require('discord.js');
-const { createApp } = require('../src/panel/server');
-const { getStore } = require('../src/lib/db');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import { createTestStore } from './support/db.js';
+import { fakeDiscord, makeBot } from './support/discord.js';
+import { createHandler } from '../supabase/functions/hopkostki-bot/lib/app.js';
+import { createPanelServer } from '../panel/server.js';
 
-function fakeClient() {
-  const channels = new Collection([
-    ['200000000000000001', { id: '200000000000000001', name: 'logi', type: ChannelType.GuildText, rawPosition: 1, parent: { name: 'Moderacja' } }],
-    ['200000000000000002', { id: '200000000000000002', name: 'glosowy', type: ChannelType.GuildVoice, rawPosition: 2 }],
-  ]);
-  const roles = new Collection([
-    ['g1', { id: 'g1', name: '@everyone', position: 0, managed: false, hexColor: '#000000' }],
-    ['300000000000000001', { id: '300000000000000001', name: 'Moderator', position: 5, managed: false, hexColor: '#ff0000' }],
-  ]);
-  const guild = { id: 'g1', name: 'Entuzjaści Hopkostki', memberCount: 123, iconURL: () => null, channels: { cache: channels }, roles: { cache: roles } };
-  return {
-    isReady: () => true,
-    user: { tag: 'Hopkostki#0001', id: 'bot', displayAvatarURL: () => 'x' },
-    ws: { ping: 42 },
-    uptime: 1000,
-    guilds: { cache: new Collection([['g1', guild]]) },
-    users: { fetch: async () => null },
-  };
+const BASE = 'https://x.supabase.co/functions/v1/hopkostki-bot/panel';
+
+async function setup() {
+  const { store } = await createTestStore();
+  const discord = fakeDiscord();
+  const bot = makeBot({ store, discord });
+  const handle = createHandler(bot);
+  const call = (path, { method = 'GET', body, password = 'tajne' } = {}) =>
+    handle(new Request(`${BASE}${path}`, { method, headers: { 'x-panel-password': password, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }));
+  return { store, discord, bot, handle, call };
 }
 
-async function withServer(options, fn) {
-  const server = createApp(fakeClient(), options).listen(0, '127.0.0.1');
-  await new Promise((resolve) => server.once('listening', resolve));
-  const base = `http://127.0.0.1:${server.address().port}`;
+test('API panelu wymaga hasła', async () => {
+  const s = await setup();
+  assert.equal((await s.call('/status', { password: 'zle' })).status, 401);
+  assert.equal((await s.call('/status', { password: '' })).status, 401);
+});
+
+test('API panelu: status, kanały, role i zapis konfiguracji', async () => {
+  const s = await setup();
+  const status = await (await s.call('/status')).json();
+  assert.equal(status.ready, true);
+  assert.equal(status.guild.name, 'Entuzjaści Hopkostki');
+  assert.equal(status.guild.memberCount, 1337);
+  assert.equal(status.setup.tokenConfigured, true);
+
+  const guild = await (await s.call('/guild')).json();
+  assert.deepEqual(guild.channels.map((c) => [c.name, c.category]), [['ogolny', null], ['mod-logi', 'Moderacja']]);
+  assert.deepEqual(guild.roles.map((r) => r.name), ['Admin', 'Bot', 'Moderator', 'Entuzjasta']);
+
+  const { config } = await (await s.call('/config', { method: 'PUT', body: { replyReaction: { emoji: '🍞' } } })).json();
+  assert.equal(config.replyReaction.emoji, '🍞');
+  assert.equal((await s.store.getConfig()).replyReaction.emoji, '🍞');
+});
+
+test('API panelu: usuwanie ostrzeżenia i ręczne odbanowanie', async () => {
+  const s = await setup();
+  const warn = await s.store.addWarn({ guildId: 'g1', userId: 'target', userTag: 'a', moderatorId: 'm', moderatorTag: 'mod', reason: 'r', points: 1, caseId: null }, 60);
+  const list = await (await s.call('/warns')).json();
+  assert.equal(list.users[0].warns[0].id, warn.id);
+  assert.equal((await s.call(`/warns/${warn.id}`, { method: 'DELETE' })).status, 200);
+  assert.equal(await s.store.getWarn(warn.id), null);
+
+  s.discord.state.bans.set('target', { user: s.discord.state.users.get('target') });
+  await s.store.setTempBan({ guildId: 'g1', userId: 'target', userTag: 'hurownik_og', expiresAt: Date.now() + 1e6, caseId: 1 });
+  assert.equal((await s.call('/tempbans/target/unban', { method: 'POST' })).status, 404, 'tylko liczbowe ID');
+});
+
+test('lokalny panel przekazuje /api do bota z hasłem i serwuje frontend', async () => {
+  const seen = [];
+  const upstream = http.createServer((req, res) => {
+    seen.push({ method: req.method, url: req.url, password: req.headers['x-panel-password'] });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  const botUrl = `http://127.0.0.1:${upstream.address().port}/functions/v1/hopkostki-bot`;
+  const panel = createPanelServer({ botUrl, password: 'tajne' });
+  await new Promise((resolve) => panel.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${panel.address().port}`;
   try {
-    await fn(base);
-  } finally {
-    server.close();
-  }
-}
+    assert.deepEqual(await (await fetch(`${base}/api/cases?page=2`)).json(), { ok: true });
+    assert.deepEqual(seen[0], { method: 'GET', url: '/functions/v1/hopkostki-bot/panel/cases?page=2', password: 'tajne' });
 
-const json = { 'Content-Type': 'application/json', 'X-Panel': '1' };
-
-test('panel bez hasła: status, kanały, role i zapis konfiguracji', async () => {
-  await withServer({}, async (base) => {
-    const status = await (await fetch(`${base}/api/status`)).json();
-    assert.equal(status.guild.name, 'Entuzjaści Hopkostki');
-    assert.equal(status.ping, 42);
-
-    const guild = await (await fetch(`${base}/api/guild`)).json();
-    assert.deepEqual(guild.channels.map((c) => c.name), ['logi']);
-    assert.deepEqual(guild.roles.map((r) => r.name), ['Moderator']);
-
-    const res = await fetch(`${base}/api/config`, {
-      method: 'PUT',
-      headers: json,
-      body: JSON.stringify({ modLogChannelId: '200000000000000001', replyReaction: { emoji: '🍞' } }),
-    });
-    const { config } = await res.json();
-    assert.equal(config.modLogChannelId, '200000000000000001');
-    assert.equal(getStore().config.replyReaction.emoji, '🍞');
+    const blocked = await fetch(`${base}/api/config`, { method: 'PUT', body: '{}' });
+    assert.equal(blocked.status, 403, 'zapis bez nagłówka panelu');
 
     const page = await fetch(`${base}/`);
     assert.match(await page.text(), /Panel — Entuzjaści Hopkostki/);
-  });
-});
+    assert.equal((await fetch(`${base}/..%2F..%2Fpackage.json`)).status, 404);
 
-test('zapis bez nagłówka panelu jest odrzucany (ochrona przed obcymi stronami)', async () => {
-  await withServer({}, async (base) => {
-    const res = await fetch(`${base}/api/config`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    assert.equal(res.status, 403);
-  });
-});
-
-test('obcy nagłówek Host jest blokowany przy nasłuchu lokalnym', async () => {
-  const http = require('node:http');
-  await withServer({}, async (base) => {
-    const { port } = new URL(base);
-    const status = await new Promise((resolve) => {
-      http.get({ host: '127.0.0.1', port, path: '/api/status', headers: { Host: 'evil.example.com' } }, (res) => resolve(res.statusCode));
+    const evil = await new Promise((resolve) => {
+      http.get({ host: '127.0.0.1', port: panel.address().port, path: '/', headers: { Host: 'evil.example.com' } }, (res) => resolve(res.statusCode));
     });
-    assert.equal(status, 403);
-  });
-});
-
-test('panel z hasłem wymaga logowania', async () => {
-  await withServer({ password: 'tajne' }, async (base) => {
-    assert.equal((await fetch(`${base}/api/status`)).status, 401);
-    assert.deepEqual(await (await fetch(`${base}/api/auth`)).json(), { required: true, loggedIn: false });
-
-    const bad = await fetch(`${base}/api/login`, { method: 'POST', headers: json, body: JSON.stringify({ password: 'zle' }) });
-    assert.equal(bad.status, 401);
-
-    const good = await fetch(`${base}/api/login`, { method: 'POST', headers: json, body: JSON.stringify({ password: 'tajne' }) });
-    const cookie = good.headers.get('set-cookie').split(';')[0];
-    const status = await fetch(`${base}/api/status`, { headers: { cookie } });
-    assert.equal(status.status, 200);
-  });
-});
-
-test('usuwanie ostrzeżenia z panelu', async () => {
-  const store = getStore();
-  const warn = store.addWarn({ guildId: 'g1', userId: '1', userTag: 'a', moderatorId: 'm', moderatorTag: 'mod', reason: 'r', points: 1, caseId: 1 });
-  await withServer({}, async (base) => {
-    const list = await (await fetch(`${base}/api/warns`)).json();
-    assert.equal(list.users[0].warns[0].id, warn.id);
-    const del = await fetch(`${base}/api/warns/${warn.id}`, { method: 'DELETE', headers: json });
-    assert.equal(del.status, 200);
-    assert.equal(store.getWarn(warn.id), null);
-  });
+    assert.equal(evil, 403);
+  } finally {
+    panel.close();
+    upstream.close();
+  }
 });

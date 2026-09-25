@@ -1,175 +1,149 @@
-require('./helpers');
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { getStore } = require('../src/lib/db');
-const moderation = require('../src/lib/moderation');
-const messageCreate = require('../src/events/messageCreate');
-const { fakeUser, fakeChannel, fakeMember, fakeGuild, fakeInteraction } = require('./fakes');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createTestStore } from './support/db.js';
+import { fakeDiscord, makeBot } from './support/discord.js';
+import * as moderation from '../supabase/functions/hopkostki-bot/lib/moderation.js';
+import { DiscordError } from '../supabase/functions/hopkostki-bot/lib/rest.js';
 
-const store = getStore();
-const LOG_ID = '100000000000000001';
-
-function setup(options = {}) {
-  const events = [];
-  const bot = fakeUser('bot', 'Hopkostki Bot');
-  const mod = fakeUser('mod', 'dfgbh65');
-  const target = fakeUser('target', 'hurownik_og', options);
-  const targetMember = fakeMember(target, { position: 1, events });
-  const modMember = fakeMember(mod, { position: 5 });
-  const channel = fakeChannel('chan');
-  const log = fakeChannel(LOG_ID);
-  const guild = fakeGuild({ bot, members: [targetMember], channels: [channel, log], events, banError: options.banError });
-  const interaction = fakeInteraction(channel, mod);
-  const origSend = target.send.bind(target);
-  target.send = async (payload) => {
-    events.push('dm');
-    return origSend(payload);
-  };
-  return { events, bot, mod, target, targetMember, modMember, channel, log, guild, interaction };
+async function setup(options = {}) {
+  const { store, db } = await createTestStore();
+  await store.updateConfig({ modLogChannelId: '100000000000000001', ...(options.config ?? {}) });
+  const discord = fakeDiscord(options);
+  const bot = makeBot({ store, discord });
+  const users = discord.state.users;
+  return { bot, store, db, discord, target: users.get('target'), mod: users.get('mod') };
 }
 
-test.beforeEach(() => {
-  store.updateConfig({ modLogChannelId: LOG_ID, escalation: { enabled: false } });
-});
+// Atrapa odroczonej interakcji (edycja @original).
+function fakeIx(bot, ephemeral = false) {
+  return {
+    channelId: 'chan',
+    ephemeral,
+    edit: (payload) => bot.discord.patch('/webhooks/app/tok/messages/@original', payload),
+  };
+}
 
-test('tymczasowy ban: DM przed banem, ogłoszenie z oznaczeniem, log i wpis do odbanowania', async () => {
-  const s = setup();
-  const { entry, message } = await moderation.banUser({
-    interaction: s.interaction,
-    guild: s.guild,
+const logs = (discord) => discord.state.channels.get('100000000000000001') ?? [];
+
+test('tymczasowy ban: DM przed banem, embed na kanale z oznaczeniem, log i wpis do odbanowania', async () => {
+  const s = await setup();
+  const { entry, message } = await moderation.banUser(s.bot, {
+    interaction: fakeIx(s.bot),
     target: s.target,
     moderator: s.mod,
     reason: 'Wielokrotne łamanie zasad',
     duration: { amount: 14, unit: 'd' },
   });
 
-  assert.deepEqual(s.events, ['dm', 'ban']);
-  assert.equal(s.guild.banned[0].id, 'target');
-  const payload = s.interaction.replies[0];
+  const order = s.discord.state.calls.map((c) => `${c.method} ${c.path}`);
+  assert.ok(order.indexOf('POST /users/@me/channels') < order.indexOf('PUT /guilds/g1/bans/target'), 'DM przed banem');
+  assert.match(s.discord.state.bans.get('target').reason, /dfgbh65: Wielokrotne łamanie zasad \(sprawa #1\)/);
+
+  const payload = s.discord.state.webhook[0].body;
   assert.equal(payload.content, '<@target>');
-  const embed = payload.embeds[0].toJSON();
+  assert.deepEqual(payload.allowed_mentions, { users: ['target'] });
+  const embed = payload.embeds[0];
   assert.equal(embed.title, '⛔ Pomyślnie zbanowano użytkownika');
   assert.match(embed.description, /Pomyślnie tymczasowo zbanowałeś \*\*hurownik\\_og\*\* z serwera!/);
   assert.match(embed.description, /\*\*Czas:\*\* 14 dni/);
   assert.match(embed.description, /\*\*Wygasa:\*\* <t:\d+:f> \(<t:\d+:R>\)/);
   assert.equal(embed.footer.text, `Sprawa #${entry.id} • Entuzjaści Hopkostki`);
 
-  const dm = s.target.dms[0].payload.embeds[0].toJSON();
-  assert.match(dm.title, /Zostałeś zbanowany/);
-  assert.match(dm.description, /tymczasowo zbanowany na serwerze/);
-
-  assert.ok(store.isModMessage(message.id));
-  assert.equal(store.listTempBans().find((b) => b.userId === 'target').caseId, entry.id);
-  assert.match(s.log.sent[0].payload.embeds[0].toJSON().author.name, /Tymczasowy ban \| Sprawa #/);
+  assert.match(s.discord.state.dms[0].embeds[0].description, /tymczasowo zbanowany na serwerze/);
+  assert.deepEqual([...(await s.store.filterModMessages([message.id]))], [message.id]);
+  assert.equal((await s.store.listTempBans())[0].caseId, entry.id);
+  assert.equal((await s.store.getCase(entry.id)).dmStatus, '✅ dostarczono');
+  assert.match(logs(s.discord)[0].embeds[0].author.name, /Tymczasowy ban \| Sprawa #1/);
 });
 
 test('ban permanentny usuwa wcześniejszy tymczasowy wpis', async () => {
-  const s = setup();
-  store.setTempBan({ guildId: 'g1', userId: 'target', userTag: 'x', expiresAt: Date.now() + 1000, caseId: 1 });
-  await moderation.banUser({ interaction: s.interaction, guild: s.guild, target: s.target, moderator: s.mod, reason: 'r' });
-  assert.equal(store.listTempBans().some((b) => b.userId === 'target'), false);
-  assert.match(s.interaction.replies[0].embeds[0].toJSON().description, /\*\*Czas:\*\* Permanentny/);
+  const s = await setup();
+  await s.store.setTempBan({ guildId: 'g1', userId: 'target', userTag: 'x', expiresAt: Date.now() + 1000, caseId: 1 });
+  await moderation.banUser(s.bot, { interaction: fakeIx(s.bot), target: s.target, moderator: s.mod, reason: 'r' });
+  assert.equal((await s.store.listTempBans()).length, 0);
+  assert.match(s.discord.state.webhook[0].body.embeds[0].description, /\*\*Czas:\*\* Permanentny/);
 });
 
-test('nieudany ban: sprawa i DM są wycofywane', async () => {
-  const s = setup({ banError: new Error('Missing Permissions') });
-  const casesBefore = store.listCases().total;
+test('nieudany ban: sprawa i wysłany DM są wycofywane', async () => {
+  const s = await setup({ banError: new DiscordError(403, { code: 50013, message: 'Missing Permissions' }) });
   await assert.rejects(
-    moderation.banUser({ interaction: s.interaction, guild: s.guild, target: s.target, moderator: s.mod, reason: 'r' }),
-    moderation.ActionError,
+    moderation.banUser(s.bot, { interaction: fakeIx(s.bot), target: s.target, moderator: s.mod, reason: 'r' }),
+    (error) => error instanceof moderation.ActionError && /Brakuje mi uprawnień/.test(error.message),
   );
-  assert.equal(store.listCases().total, casesBefore);
-  assert.equal(s.target.dms[0].deleted, true);
+  assert.equal((await s.store.listCases()).total, 0);
+  assert.equal(s.discord.state.deletedDms.length, 1);
 });
 
-test('zamknięte DM nie blokują kary', async () => {
-  const s = setup({ dmFails: true });
-  const { entry } = await moderation.kickUser({
-    interaction: s.interaction, guild: s.guild, target: s.target, targetMember: s.targetMember, moderator: s.mod, reason: 'r',
-  });
-  assert.ok(s.targetMember.kicked);
-  assert.equal(store.getCase(entry.id).dmStatus, '❌ nie udało się (zamknięte DM)');
+test('zamknięte DM nie blokują kicka', async () => {
+  const s = await setup({ dmFails: true });
+  const { entry } = await moderation.kickUser(s.bot, { interaction: fakeIx(s.bot), target: s.target, moderator: s.mod, reason: 'r' });
+  assert.equal(s.discord.state.kicked[0].id, 'target');
+  assert.equal((await s.store.getCase(entry.id)).dmStatus, '❌ nie udało się (zamknięte DM)');
 });
 
-test('timeout: czas w wiadomości i poprawne ms', async () => {
-  const s = setup();
-  await moderation.timeoutUser({
-    interaction: s.interaction, guild: s.guild, target: s.target, targetMember: s.targetMember, moderator: s.mod,
-    reason: 'spam', duration: { amount: 3, unit: 'h' },
-  });
-  assert.equal(s.targetMember.timeoutCalls[0].ms, 3 * 3_600_000);
-  assert.match(s.interaction.replies[0].embeds[0].toJSON().description, /na \*\*3 godziny\*\*/);
+test('timeout: poprawna data końca i czas w wiadomości', async () => {
+  const s = await setup();
+  const before = Date.now();
+  await moderation.timeoutUser(s.bot, { interaction: fakeIx(s.bot), target: s.target, moderator: s.mod, reason: 'spam', duration: { amount: 3, unit: 'h' } });
+  const until = new Date(s.discord.state.timeouts[0].until).getTime();
+  assert.ok(Math.abs(until - (before + 3 * 3_600_000)) < 5_000);
+  assert.match(s.discord.state.webhook[0].body.embeds[0].description, /na \*\*3 godziny\*\*/);
 });
 
-test('ostrzeżenie: punkty ukryte przed użytkownikiem, widoczne w logu, z odliczaniem 60 dni', async () => {
-  const s = setup();
-  await moderation.warnUser({ interaction: s.interaction, guild: s.guild, target: s.target, moderator: s.mod, reason: 'r', points: 2 });
-  const publicEmbed = s.interaction.replies[0].embeds[0].toJSON().description;
-  const dmEmbed = s.target.dms[0].payload.embeds[0].toJSON().description;
-  const logEmbed = s.log.sent[0].payload.embeds[0].toJSON().description;
+test('ostrzeżenie: punkty ukryte przed użytkownikiem, widoczne w logu, odliczanie 60 dni', async () => {
+  const s = await setup();
+  await moderation.warnUser(s.bot, { interaction: fakeIx(s.bot), target: s.target, moderator: s.mod, reason: 'r', points: 2 });
+  const publicEmbed = s.discord.state.webhook[0].body.embeds[0].description;
+  const dmEmbed = s.discord.state.dms[0].embeds[0].description;
+  const logEmbed = logs(s.discord)[0].embeds[0].description;
   assert.doesNotMatch(publicEmbed, /Punkty/);
   assert.doesNotMatch(dmEmbed, /Punkty/);
   assert.match(publicEmbed, /Ostrzeżenie wygasa:\*\* <t:\d+:f>/);
   assert.match(logEmbed, /\*\*Punkty:\*\* \+2/);
-  assert.match(logEmbed, /łącznie \*\*\d+ pkt\*\*/);
+  assert.match(logEmbed, /łącznie \*\*2 pkt\*\*/);
+  const [warn] = await s.store.getWarns('target');
+  assert.ok(warn.expiresAt - Date.now() > 59 * 86_400_000);
 });
 
 test('automatyczna kara po przekroczeniu progu punktów', async () => {
-  store.clearWarns('target');
-  store.updateConfig({ escalation: { enabled: true, rules: [{ points: 3, action: 'timeout', amount: 1, unit: 'h' }] } });
-  const s = setup();
-  await moderation.warnUser({ interaction: s.interaction, guild: s.guild, target: s.target, moderator: s.mod, reason: 'a', points: 2 });
-  assert.equal(s.targetMember.timeoutCalls.length, 0);
-  await moderation.warnUser({ interaction: s.interaction, guild: s.guild, target: s.target, moderator: s.mod, reason: 'b', points: 1 });
-  assert.equal(s.targetMember.timeoutCalls[0].ms, 3_600_000);
-  const autoCase = store.listCases({ userId: 'target', type: 'timeout' }).items[0];
-  assert.equal(autoCase.auto, true);
-  assert.match(autoCase.reason, /Automatyczna kara: 3 pkt/);
+  const s = await setup({ config: { escalation: { enabled: true, rules: [{ points: 3, action: 'timeout', amount: 1, unit: 'h' }] } } });
+  await moderation.warnUser(s.bot, { interaction: fakeIx(s.bot), target: s.target, moderator: s.mod, reason: 'a', points: 2 });
+  assert.equal(s.discord.state.timeouts.length, 0);
+  await moderation.warnUser(s.bot, { interaction: fakeIx(s.bot), target: s.target, moderator: s.mod, reason: 'b', points: 1 });
+  assert.equal(s.discord.state.timeouts.length, 1);
+  const auto = (await s.store.listCases({ type: 'timeout' })).items[0];
+  assert.equal(auto.auto, true);
+  assert.equal(auto.moderatorId, 'bot');
+  assert.match(auto.reason, /Automatyczna kara: 3 pkt/);
 });
 
-test('crossedRule wybiera najwyższy przekroczony próg', () => {
-  const rules = [{ points: 5 }, { points: 10 }, { points: 20 }];
-  assert.equal(moderation.crossedRule(rules, 4, 12).points, 10);
-  assert.equal(moderation.crossedRule(rules, 10, 12), null);
-  assert.equal(moderation.crossedRule(rules, 0, 25).points, 20);
-});
-
-test('hierarchia ról i ochrona właściciela', () => {
-  const s = setup();
-  const base = { guild: s.guild, moderatorMember: s.modMember, target: s.target, targetMember: s.targetMember, action: 'ban' };
+test('hierarchia ról i ochrona właściciela', async () => {
+  const s = await setup();
+  const gctx = await moderation.getGuildContext(s.bot);
+  const mod = { id: 'mod', roles: ['r-mod'] };
+  const base = { gctx, moderator: mod, target: s.target, targetMember: { roles: ['r-member'] }, action: 'ban' };
   assert.equal(moderation.checkTarget(base), null);
-  assert.match(moderation.checkTarget({ ...base, target: s.mod, targetMember: s.modMember }), /na sobie/);
-  const boss = fakeMember(s.target, { position: 9 });
-  assert.match(moderation.checkTarget({ ...base, targetMember: boss }), /równą lub wyższą/);
+  assert.match(moderation.checkTarget({ ...base, target: s.mod }), /na sobie/);
+  assert.match(moderation.checkTarget({ ...base, targetMember: { roles: ['r-admin'] } }), /równą lub wyższą/);
   assert.match(moderation.checkTarget({ ...base, target: { id: 'owner' } }), /właściciela/);
+  assert.match(moderation.checkTarget({ ...base, target: { id: 'bot' } }), /samego siebie/);
   assert.match(moderation.checkTarget({ ...base, targetMember: null, action: 'kick' }), /nie ma na serwerze/);
-  assert.equal(moderation.checkTarget({ ...base, targetMember: null, action: 'ban' }), null);
-});
-
-test('odpowiedź na wiadomość o karze dostaje reakcję 🫓', async () => {
-  store.addModMessage('kara123');
-  const reacted = [];
-  const makeMessage = (ref) => ({
-    inGuild: () => true,
-    author: { bot: false },
-    reference: ref ? { messageId: ref } : null,
-    async react(emoji) { reacted.push([ref, emoji]); },
-  });
-  await messageCreate.execute(makeMessage('kara123'));
-  await messageCreate.execute(makeMessage('inna'));
-  await messageCreate.execute(makeMessage(null));
-  assert.deepEqual(reacted, [['kara123', '🫓']]);
+  assert.equal(moderation.checkTarget({ ...base, targetMember: null }), null);
+  // Właściciel może ukarać każdego poniżej bota, ale bot nie ukarze kogoś wyżej od siebie.
+  assert.match(
+    moderation.checkTarget({ ...base, moderator: { id: 'owner', roles: [] }, targetMember: { roles: ['r-admin'] }, action: 'kick' }),
+    /moja rola musi być wyżej/,
+  );
 });
 
 test('wygasły tymczasowy ban jest zdejmowany automatycznie', async () => {
-  const s = setup();
-  s.guild.banned.push({ id: 'target' });
-  const client = { user: s.bot, guilds: { cache: new Map([['g1', s.guild]]) }, users: { fetch: async () => s.target } };
-  store.setTempBan({ guildId: 'g1', userId: 'target', userTag: 'hurownik_og', expiresAt: Date.now() - 1, caseId: 7 });
-  await moderation.expireTempBan(client, store.dueTempBans()[0]);
-  assert.equal(s.guild.banned.length, 0);
-  assert.equal(store.listTempBans().length, 0);
-  const unban = store.listCases({ type: 'unban' }).items[0];
+  const s = await setup();
+  s.discord.state.bans.set('target', { user: s.target });
+  await s.store.setTempBan({ guildId: 'g1', userId: 'target', userTag: 'hurownik_og', expiresAt: Date.now() - 1, caseId: 7 });
+  await moderation.expireTempBan(s.bot, (await s.store.dueTempBans())[0]);
+  assert.equal(s.discord.state.bans.size, 0);
+  assert.equal((await s.store.listTempBans()).length, 0);
+  const unban = (await s.store.listCases({ type: 'unban' })).items[0];
   assert.equal(unban.auto, true);
   assert.match(unban.reason, /sprawa #7/);
 });
