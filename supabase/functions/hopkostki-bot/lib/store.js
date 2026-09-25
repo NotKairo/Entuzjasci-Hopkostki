@@ -64,7 +64,7 @@ export function createStore(query) {
     async updateConfig(input) {
       const next = sanitizeConfig(input, await store.getConfig());
       await query(
-        `insert into bot.config (id, data, updated_at) values (1, $1::jsonb, now())
+        `insert into bot.config (id, data, updated_at) values (1, $1::text::jsonb, now())
          on conflict (id) do update set data = excluded.data, updated_at = now()`,
         [JSON.stringify(next)],
       );
@@ -75,7 +75,7 @@ export function createStore(query) {
     async addCase(c) {
       const row = await one(
         `insert into bot.cases (type, guild_id, user_id, user_tag, moderator_id, moderator_tag, reason, duration, expires_at, auto)
-         values ($1::text, $2::text, $3::text, $4::text, $5::text, $6::text, $7::text, $8::jsonb,
+         values ($1::text, $2::text, $3::text, $4::text, $5::text, $6::text, $7::text, $8::text::jsonb,
                  case when $9::float8 is null then null else to_timestamp($9::float8 / 1000) end, $10::boolean)
          returning *`,
         [
@@ -189,7 +189,7 @@ export function createStore(query) {
       const ids = rows.map((r) => r.case_id).filter(Boolean);
       if (ids.length) {
         await query(
-          `update bot.cases set note = 'Ostrzeżenie wygasło' where id in (select (jsonb_array_elements_text($1::jsonb))::int)`,
+          `update bot.cases set note = 'Ostrzeżenie wygasło' where id in (select (jsonb_array_elements_text($1::text::jsonb))::int)`,
           [JSON.stringify(ids)],
         );
       }
@@ -245,7 +245,7 @@ export function createStore(query) {
     async filterModMessages(ids) {
       if (!ids.length) return new Set();
       const rows = await query(
-        'select message_id from bot.mod_messages where message_id in (select jsonb_array_elements_text($1::jsonb))',
+        'select message_id from bot.mod_messages where message_id in (select jsonb_array_elements_text($1::text::jsonb))',
         [JSON.stringify(ids)],
       );
       return new Set(rows.map((r) => r.message_id));
@@ -283,7 +283,7 @@ export function createStore(query) {
 
     async setState(key, value) {
       await query(
-        `insert into bot.state (key, value, updated_at) values ($1::text, $2::jsonb, now())
+        `insert into bot.state (key, value, updated_at) values ($1::text, $2::text::jsonb, now())
          on conflict (key) do update set value = excluded.value, updated_at = now()`,
         [key, JSON.stringify(value)],
       );
