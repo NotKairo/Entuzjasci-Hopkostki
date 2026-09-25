@@ -1,0 +1,19 @@
+{
+  "name": "entuzjasci-hopkostki-bot",
+  "version": "1.0.0",
+  "description": "Bot moderacyjny Discord dla serwera Entuzjaści Hopkostki (bany, timeouty, kicki, ostrzeżenia, panel konfiguracyjny)",
+  "main": "src/index.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "discord.js": "^14.27.0",
+    "dotenv": "^18.0.4",
+    "express": "^5.2.1"
+  }
+}

@@ -1,0 +1,83 @@
+// Walidacja konfiguracji przychodzącej z panelu. Nieznane klucze są ignorowane,
+// a błędne wartości zastępowane obecnymi, więc panel nie jest w stanie "zepsuć" bota.
+
+const { DEFAULT_CONFIG } = require('../config/defaults');
+const { isValidUnit } = require('./duration');
+
+const SNOWFLAKE = /^\d{15,25}$/;
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+const ESCALATION_ACTIONS = ['alert', 'timeout', 'kick', 'ban'];
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+// Scala zapisaną konfigurację z domyślną (nowe klucze z domyślnej, tablice nadpisywane w całości).
+function mergeWithDefaults(defaults, stored) {
+  if (!isPlainObject(stored)) return structuredClone(defaults);
+  const out = {};
+  for (const [key, def] of Object.entries(defaults)) {
+    const value = stored[key];
+    if (isPlainObject(def)) out[key] = mergeWithDefaults(def, value);
+    else if (Array.isArray(def)) out[key] = Array.isArray(value) ? structuredClone(value) : structuredClone(def);
+    else out[key] = value === undefined ? def : value;
+  }
+  return out;
+}
+
+function cleanRules(rules, fallback) {
+  if (!Array.isArray(rules)) return fallback;
+  return rules
+    .slice(0, 20)
+    .map((rule) => ({
+      points: Math.floor(Number(rule?.points)),
+      action: String(rule?.action),
+      amount: Math.floor(Number(rule?.amount) || 0),
+      unit: String(rule?.unit),
+    }))
+    .filter((rule) =>
+      Number.isFinite(rule.points) && rule.points > 0 &&
+      ESCALATION_ACTIONS.includes(rule.action) &&
+      isValidUnit(rule.unit) && rule.amount >= 0,
+    )
+    .sort((a, b) => a.points - b.points);
+}
+
+function cleanValue(path, input, current, def) {
+  if (path === 'modRoleIds') {
+    if (!Array.isArray(input)) return current;
+    return [...new Set(input.map(String).filter((id) => SNOWFLAKE.test(id)))];
+  }
+  if (path === 'escalation.rules') return cleanRules(input, current);
+  if (path === 'modLogChannelId' || path === 'announceChannelId') {
+    if (input === '' || input === null) return '';
+    return SNOWFLAKE.test(String(input)) ? String(input) : current;
+  }
+  if (path.endsWith('.color')) return HEX_COLOR.test(String(input)) ? String(input).toUpperCase() : current;
+
+  if (typeof def === 'boolean') return typeof input === 'boolean' ? input : current;
+  if (typeof def === 'number') {
+    const n = Math.floor(Number(input));
+    return Number.isFinite(n) && n >= 0 && n <= 100_000 ? n : current;
+  }
+  if (typeof def === 'string') return typeof input === 'string' ? input.slice(0, 1500) : current;
+  return current;
+}
+
+function sanitizeConfig(input, current, defaults = DEFAULT_CONFIG, prefix = '') {
+  const out = {};
+  for (const [key, def] of Object.entries(defaults)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    const value = isPlainObject(input) ? input[key] : undefined;
+    if (isPlainObject(def)) {
+      out[key] = sanitizeConfig(value, current[key], def, path);
+    } else if (value === undefined) {
+      out[key] = current[key];
+    } else {
+      out[key] = cleanValue(path, value, current[key], def);
+    }
+  }
+  return out;
+}
+
+module.exports = { mergeWithDefaults, sanitizeConfig, ESCALATION_ACTIONS };
