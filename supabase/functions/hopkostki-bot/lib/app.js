@@ -41,16 +41,14 @@ function randomPassword() {
   return btoa(text).replace(/[+/=]/g, (c) => ({ '+': '-', '/': '_', '=': '' })[c]);
 }
 
-// Hasło panelu: albo na stałe z sekretu PANEL_PASSWORD, albo (gdy nie ustawiono) wygenerowane samo przy
-// pierwszym użyciu i zapamiętane w bazie — dzięki temu panel działa "od ręki", bez ustawiania sekretów.
+// Hasło panelu: ustawione w panelu (baza) > sekret PANEL_PASSWORD > wygenerowane samo przy pierwszym użyciu.
 async function resolvePanelPassword(bot) {
-  if (bot.env.panelPassword) return { password: bot.env.panelPassword, fixed: true };
-  let stored = await bot.store.getState('panel_password');
-  if (!stored) {
-    stored = randomPassword();
-    await bot.store.setState('panel_password', stored);
-  }
-  return { password: stored, fixed: false };
+  const stored = await bot.store.getState('panel_password');
+  if (stored) return stored;
+  if (bot.env.panelPassword) return bot.env.panelPassword;
+  const generated = randomPassword();
+  await bot.store.setState('panel_password', generated);
+  return generated;
 }
 
 async function publicKey(bot) {
@@ -104,7 +102,7 @@ export function createHandler(bot, { waitUntil = (promise) => promise } = {}) {
   }
 
   async function panel(request, url, path, cors) {
-    const { password } = await resolvePanelPassword(bot);
+    const password = await resolvePanelPassword(bot);
     if (!(await safeEqual(request.headers.get('x-panel-password'), password))) {
       return json({ error: 'Złe hasło panelu.' }, 401, cors);
     }

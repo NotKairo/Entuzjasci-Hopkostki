@@ -5,8 +5,10 @@ import { COMMAND_MAP } from './commands.js';
 import { VIEWS, parseCustomId, renderView } from './views.js';
 import { hasModAccess, describeError, ActionError, announceElsewhere } from './moderation.js';
 import { errorEmbed } from './embeds.js';
+import { isVoiceCustomId, handleVoiceInteraction } from './voice.js';
+import { isRoleCustomId, handleRoleInteraction } from './messages.js';
 
-const TYPE = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4 };
+const TYPE = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4, MODAL_SUBMIT: 5 };
 const RESPONSE = { PONG: 1, MESSAGE: 4, DEFERRED: 5, DEFERRED_UPDATE: 6, AUTOCOMPLETE: 8 };
 export const EPHEMERAL = 64;
 
@@ -93,7 +95,14 @@ export async function handleInteraction(body, bot) {
     return { response: ephemeralMessage('Ten bot działa tylko na serwerze Entuzjaści Hopkostki.') };
   }
 
-  if (body.type === TYPE.COMPONENT) return handleComponent(body, bot);
+  if (body.type === TYPE.COMPONENT || body.type === TYPE.MODAL_SUBMIT) {
+    const customId = body.data?.custom_id;
+    // Panel kanału głosowego i wybór ról — własne przyciski, poza widokami ze stronami.
+    if (isVoiceCustomId(customId)) return handleVoiceInteraction(wrapInteraction(body, bot), bot);
+    if (isRoleCustomId(customId)) return handleRoleInteraction(wrapInteraction(body, bot), bot);
+    if (body.type === TYPE.COMPONENT) return handleComponent(body, bot);
+    return { response: ephemeralMessage('Ten formularz jest już nieaktualny.') };
+  }
 
   const command = COMMAND_MAP.get(body.data?.name);
   if (!command) return { response: ephemeralMessage('Nieznana komenda — spróbuj ponownie za chwilę.') };

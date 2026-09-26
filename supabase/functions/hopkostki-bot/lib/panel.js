@@ -2,13 +2,18 @@
 // z nagłówkiem x-panel-password — samo API działa na Supabase razem z botem.
 
 import { DEFAULT_CONFIG } from './defaults.js';
-import { getGuildContext, unbanUser, sendModLog, describeError } from './moderation.js';
-import { avatarUrl, guildIconUrl } from './rest.js';
+import { getGuildContext, unbanUser, sendModLog, describeError, ActionError } from './moderation.js';
+import { avatarUrl, guildIconUrl, DiscordError } from './rest.js';
 import { simpleEmbed } from './embeds.js';
 import { ensureSetup } from './cron.js';
 import { COMMAND_META } from './commands.js';
+import { P, has, highestPosition, memberPermissions, permissionLabel } from './permissions.js';
+import { sendPanelMessage, editPanelMessage, deletePanelMessage } from './messages.js';
 
 const TEXT_CHANNELS = new Set([0, 5]);
+const byPosition = (a, b) => a.position - b.position;
+const ok = (body) => ({ status: 200, body });
+const fail = (status, error) => ({ status, body: { error } });
 const hex = (n) => `#${Number(n ?? 0).toString(16).padStart(6, '0')}`;
 
 async function status(bot) {
@@ -29,8 +34,6 @@ async function status(bot) {
     setup: { ...(setup ?? {}), tokenConfigured: Boolean(bot.env.token), selfUrl: bot.env.selfUrl },
     cron,
     gateway,
-    // Czy hasło panelu jest ustawione na stałe przez sekret (wtedy nie da się go zmienić tutaj).
-    passwordFixed: Boolean(bot.env.panelPassword),
   };
   if (!bot.discord) {
     result.error = 'Brak sekretu DISCORD_TOKEN w Supabase (Edge Functions → Secrets).';
@@ -53,26 +56,47 @@ async function status(bot) {
 }
 
 async function guildInfo(bot) {
-  if (!bot.discord) return { channels: [], roles: [] };
+  if (!bot.discord) return { channels: [], voiceChannels: [], categories: [], roles: [], bot: null };
   const gctx = await getGuildContext(bot);
   const channels = await bot.discord.get(`/guilds/${gctx.guild.id}/channels`);
   const categories = new Map(channels.filter((c) => c.type === 4).map((c) => [c.id, c.name]));
+  const withCategory = (c) => ({ id: c.id, name: c.name, category: categories.get(c.parent_id) ?? null });
+  const botPosition = highestPosition(gctx.botMember.roles, gctx.roles);
+  const botPerms = memberPermissions(gctx.botMember.roles, gctx.roles, gctx.guild.id);
+  const missing = (list) => list.filter((p) => !has(botPerms, p)).map((p) => permissionLabel(p));
   return {
-    channels: channels
-      .filter((c) => TEXT_CHANNELS.has(c.type))
-      .sort((a, b) => a.position - b.position)
-      .map((c) => ({ id: c.id, name: c.name, category: categories.get(c.parent_id) ?? null })),
+    channels: channels.filter((c) => TEXT_CHANNELS.has(c.type)).sort(byPosition).map(withCategory),
+    voiceChannels: channels.filter((c) => c.type === 2).sort(byPosition).map(withCategory),
+    categories: channels.filter((c) => c.type === 4).sort(byPosition).map((c) => ({ id: c.id, name: c.name })),
     // permissions + position pozwalają panelowi policzyć samodzielnie, kto ma dostęp do jakiej komendy
-    // (zakładka "Uprawnienia") bez kolejnego zapytania do Discorda.
+    // (zakładka "Uprawnienia") i które role bot może rozdawać (zakładka "Wiadomości").
     roles: gctx.rawRoles
       .filter((r) => r.id !== gctx.guild.id && !r.managed)
       .sort((a, b) => b.position - a.position)
-      .map((r) => ({ id: r.id, name: r.name, color: hex(r.color), permissions: r.permissions, position: r.position })),
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        color: hex(r.color),
+        permissions: r.permissions,
+        position: r.position,
+        assignable: r.position < botPosition && !has(r.permissions, P.ADMINISTRATOR),
+      })),
+    bot: {
+      missingVoice: missing([P.MANAGE_CHANNELS, P.MOVE_MEMBERS, P.CONNECT, P.MANAGE_ROLES]),
+      missingRoles: missing([P.MANAGE_ROLES]),
+    },
   };
 }
 
-const ok = (body) => ({ status: 200, body });
-const fail = (status, error) => ({ status, body: { error } });
+// Błędy z Discorda/walidacji -> czytelny komunikat 400 zamiast "Błąd serwera".
+async function attempt(fn) {
+  try {
+    return ok(await fn());
+  } catch (error) {
+    if (error instanceof ActionError || error instanceof DiscordError) return fail(400, describeError(error));
+    throw error;
+  }
+}
 
 export async function handlePanel(bot, { method, path, query = {}, body = {} }) {
   const { store } = bot;
@@ -88,15 +112,41 @@ export async function handlePanel(bot, { method, path, query = {}, body = {} }) 
     return ok(await ensureSetup(bot, { force: true }));
   }
 
-  // Zmiana hasła panelu — tylko gdy hasło NIE jest ustawione na stałe przez sekret PANEL_PASSWORD
-  // (wtedy wywołujący już przeszedł uwierzytelnienie tym hasłem, więc "obecne" nie trzeba podawać osobno).
+  // Zmiana hasła panelu (wywołujący już przeszedł logowanie obecnym hasłem). Hasło z bazy ma pierwszeństwo
+  // przed sekretem PANEL_PASSWORD, więc po zmianie tutaj stare hasło przestaje działać.
   if (method === 'POST' && path === '/password') {
-    if (bot.env.panelPassword) {
-      return fail(400, 'Hasło jest ustawione na stałe przez sekret PANEL_PASSWORD w Supabase (Edge Functions → Secrets) — zmień je tam.');
-    }
     const next = String(body?.next ?? '');
     if (next.length < 8) return fail(400, 'Nowe hasło musi mieć co najmniej 8 znaków.');
     await store.setState('panel_password', next);
+    return ok({ ok: true });
+  }
+
+  // Kanały głosowe na żądanie, które teraz istnieją.
+  if (method === 'GET' && path === '/voice') {
+    const channels = await store.listTempVoice();
+    return ok({ channels: await Promise.all(channels.map(async (c) => ({ ...c, members: (await store.voiceMembers(c.channelId)).length }))) });
+  }
+  const voiceMatch = /^\/voice\/(\d+)$/.exec(path);
+  if (method === 'DELETE' && voiceMatch) {
+    if (!(await store.getTempVoice(voiceMatch[1]))) return fail(404, 'Nie ma takiego kanału');
+    await bot.discord?.delete(`/channels/${voiceMatch[1]}`, { reason: 'Usunięty w panelu' }).catch(() => {});
+    await store.deleteTempVoice(voiceMatch[1]);
+    return ok({ ok: true });
+  }
+
+  // Wiadomości wysyłane z panelu (z opcjonalnym wyborem ról).
+  if (method === 'GET' && path === '/messages') return ok({ messages: await store.listSentMessages() });
+  if (method === 'POST' && path === '/messages') {
+    if (!bot.discord) return fail(503, 'Bot nie jest skonfigurowany (brak DISCORD_TOKEN).');
+    return attempt(async () => ({ message: await sendPanelMessage(bot, body) }));
+  }
+  const messageMatch = /^\/messages\/(\d+)$/.exec(path);
+  if (method === 'PUT' && messageMatch) {
+    if (!bot.discord) return fail(503, 'Bot nie jest skonfigurowany (brak DISCORD_TOKEN).');
+    return attempt(async () => ({ message: await editPanelMessage(bot, Number(messageMatch[1]), body) }));
+  }
+  if (method === 'DELETE' && messageMatch) {
+    if (!(await deletePanelMessage(bot, Number(messageMatch[1])))) return fail(404, 'Nie ma takiej wiadomości');
     return ok({ ok: true });
   }
 

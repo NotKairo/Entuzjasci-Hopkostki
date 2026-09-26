@@ -7,6 +7,7 @@ import { commandDefinitions } from './commands.js';
 import { getApp, resolveGuildId, expireTempBan, logExpiredWarns } from './moderation.js';
 import { reactionPath } from './rest.js';
 import { sha256Hex } from './verify.js';
+import { cleanupTempVoice } from './voice.js';
 
 const SETUP_EVERY_MS = 10 * 60_000;
 const PAGES_PER_CHANNEL = 5;
@@ -132,6 +133,7 @@ export async function runCron(bot, { force = false } = {}) {
       return expired.length;
     });
     report.reactions = await step('reactions', () => pollReplies(bot));
+    report.tempVoice = await step('tempVoice', () => cleanupTempVoice(bot));
     await step('prune', () => bot.store.pruneModMessages(30));
     await bot.store.setState('cron_last_run', { at: Date.now(), report });
   } finally {

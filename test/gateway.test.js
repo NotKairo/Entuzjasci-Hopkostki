@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createTestStore } from './support/db.js';
 import { fakeDiscord, makeBot, snowflake } from './support/discord.js';
-import { runGatewaySession, pickActivity, presencePayload, fillPresenceText, IDENTIFY_CAP } from '../supabase/functions/hopkostki-bot/lib/gateway.js';
+import { runGatewaySession, pickActivity, presencePayload, fillPresenceText, IDENTIFY_CAP, INTENTS } from '../supabase/functions/hopkostki-bot/lib/gateway.js';
 import { createHandler } from '../supabase/functions/hopkostki-bot/lib/app.js';
 
 // Atrapa gatewaya Discorda: skrypt `server` reaguje na to, co wysyła bot.
@@ -99,7 +99,7 @@ test('pierwsza sesja: IDENTIFY ze statusem, heartbeat, 🫓 od razu pod odpowied
   assert.equal(ws.url, 'wss://gateway.example/?v=10&encoding=json');
   const identify = ws.sent.find((p) => p.op === 2);
   assert.equal(identify.d.token, 'x');
-  assert.equal(identify.d.intents, 1 << 9);
+  assert.equal(identify.d.intents, INTENTS);
   assert.equal(identify.d.presence.status, 'online');
   assert.equal(identify.d.presence.activities.length, 1);
   assert.ok(ws.sent.some((p) => p.op === 3), 'po READY wysłano status');
@@ -120,7 +120,7 @@ test('pierwsza sesja: IDENTIFY ze statusem, heartbeat, 🫓 od razu pod odpowied
 
 test('kolejna sesja wznawia poprzednią (RESUME) bez nowego logowania', async () => {
   const s = await setup();
-  await s.store.setState('gateway_session', { sessionId: 'sess-1', resumeUrl: 'wss://resume.example', seq: 7, savedAt: Date.now() });
+  await s.store.setState('gateway_session', { sessionId: 'sess-1', resumeUrl: 'wss://resume.example', seq: 7, intents: INTENTS, savedAt: Date.now() });
   const gw = fakeGateway({
     open(ws) {
       ws.seq = 7;
@@ -143,7 +143,7 @@ test('kolejna sesja wznawia poprzednią (RESUME) bez nowego logowania', async ()
 
 test('nieważna sesja (op 9) = nowe logowanie w tej samej sesji', async () => {
   const s = await setup();
-  await s.store.setState('gateway_session', { sessionId: 'stara', resumeUrl: 'wss://resume.example', seq: 7, savedAt: Date.now() });
+  await s.store.setState('gateway_session', { sessionId: 'stara', resumeUrl: 'wss://resume.example', seq: 7, intents: INTENTS, savedAt: Date.now() });
   const gw = fakeGateway({
     open: (ws) => hello(ws),
     onPacket(ws, packet) {

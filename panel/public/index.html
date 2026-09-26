@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Panel — Entuzjaści Hopkostki</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🫓</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%235865f2'/><text x='50' y='66' font-size='46' font-weight='700' font-family='sans-serif' text-anchor='middle' fill='white'>EH</text></svg>">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="login-gate" class="login-gate">
     <form id="login-form" class="login-card">
-      <div class="logo big">🫓</div>
+      <div class="logo-badge big">EH</div>
       <h2>Panel — Entuzjaści Hopkostki</h2>
-      <p class="muted">Podaj hasło panelu. Znajdziesz je w Supabase → Edge Functions → Secrets → <code>PANEL_PASSWORD</code>, albo — jeśli nikt go tam nie ustawił — bot wygenerował je sam (zapytaj administratora / sprawdź stan bota).</p>
+      <p class="muted">Podaj hasło panelu. Zmienisz je później w zakładce Ustawienia.</p>
       <input type="password" id="login-password" placeholder="Hasło panelu" autocomplete="current-password" required>
       <p class="error-text" id="login-error"></p>
       <button type="submit" class="btn primary" id="login-submit">Zaloguj</button>
@@ -23,23 +23,25 @@
     <aside class="sidebar">
       <div class="brand">
         <img id="bot-avatar" class="avatar" alt="" hidden>
-        <span id="bot-logo" class="logo">🫓</span>
+        <span id="bot-logo" class="logo-badge">EH</span>
         <div>
           <strong id="bot-name">Hopkostki Bot</strong>
           <small id="bot-state" class="state offline">łączenie…</small>
         </div>
       </div>
       <nav id="nav">
-        <a href="#pulpit" data-view="pulpit">📊 <span>Pulpit</span></a>
-        <a href="#ustawienia" data-view="ustawienia">⚙️ <span>Ustawienia</span></a>
-        <a href="#uprawnienia" data-view="uprawnienia">🔑 <span>Uprawnienia</span></a>
-        <a href="#embedy" data-view="embedy">🎨 <span>Wygląd embedów</span></a>
-        <a href="#ostrzezenia" data-view="ostrzezenia">⚠️ <span>Ostrzeżenia</span></a>
-        <a href="#sprawy" data-view="sprawy">🗂️ <span>Sprawy</span></a>
-        <a href="#bany" data-view="bany">⛔ <span>Tymczasowe bany</span></a>
+        <a href="#pulpit" data-view="pulpit"><span>Pulpit</span></a>
+        <a href="#ustawienia" data-view="ustawienia"><span>Ustawienia</span></a>
+        <a href="#uprawnienia" data-view="uprawnienia"><span>Uprawnienia</span></a>
+        <a href="#glosowe" data-view="glosowe"><span>Kanały głosowe</span></a>
+        <a href="#wiadomosci" data-view="wiadomosci"><span>Wiadomości</span></a>
+        <a href="#embedy" data-view="embedy"><span>Wygląd embedów</span></a>
+        <a href="#ostrzezenia" data-view="ostrzezenia"><span>Ostrzeżenia</span></a>
+        <a href="#sprawy" data-view="sprawy"><span>Sprawy</span></a>
+        <a href="#bany" data-view="bany"><span>Tymczasowe bany</span></a>
       </nav>
-      <a class="side-link" href="https://supabase.com/dashboard/project/ucjmbdogtzztrkorqzjq" target="_blank" rel="noopener">☁️ Supabase</a>
-      <button type="button" class="side-link" id="logout-btn">🚪 Wyloguj</button>
+      <a class="side-link" href="https://supabase.com/dashboard/project/ucjmbdogtzztrkorqzjq" target="_blank" rel="noopener">Supabase</a>
+      <button type="button" class="side-link" id="logout-btn">Wyloguj</button>
     </aside>
 
     <main>
@@ -69,8 +71,8 @@
         </div>
         <div class="card">
           <div class="card-head">
-            <h3>🔌 Połączenie z Discordem</h3>
-            <button type="button" class="btn ghost small" id="setup-run">↻ Sprawdź i zarejestruj komendy</button>
+            <h3>Połączenie z Discordem</h3>
+            <button type="button" class="btn ghost small" id="setup-run">Sprawdź i zarejestruj komendy</button>
           </div>
           <ul class="checklist" id="setup-list"></ul>
         </div>
@@ -89,7 +91,7 @@
         </header>
         <div class="grid two">
           <div class="card">
-            <h3>📢 Kanały</h3>
+            <h3>Kanały</h3>
             <label class="field">
               <span>Kanał logów moderacji</span>
               <select data-path="modLogChannelId" data-channel-select="none"></select>
@@ -102,12 +104,12 @@
             </label>
           </div>
           <div class="card">
-            <h3>🛡️ Role moderatorów</h3>
+            <h3>Role moderatorów</h3>
             <p class="muted small">Osoby z tymi rolami mogą używać komend bota. Administratorzy i osoby z uprawnieniami Discorda (np. „Banowanie członków”) mają dostęp zawsze. Jeśli rola nie ma uprawnień Discorda, zezwól jej też na komendy w <em>Ustawienia serwera → Integracje</em>.</p>
             <div id="roles-list" class="roles-list"></div>
           </div>
           <div class="card">
-            <h3>✉️ Wiadomości</h3>
+            <h3>Wiadomości</h3>
             <label class="toggle"><input type="checkbox" data-path="mentionTarget"><span></span>Oznaczaj ukaranego użytkownika na kanale</label>
             <label class="toggle"><input type="checkbox" data-path="dmUsers"><span></span>Wysyłaj DM do ukaranego użytkownika</label>
             <label class="toggle"><input type="checkbox" data-path="dmShowModerator"><span></span>Pokazuj w DM, kto nałożył karę</label>
@@ -117,28 +119,27 @@
             </label>
           </div>
           <div class="card">
-            <h3>🫓 Reakcja na odpowiedzi</h3>
+            <h3>Reakcja na odpowiedzi</h3>
             <p class="muted small">Gdy ktoś odpowie (reply) na wiadomość bota o karze, bot doda pod jego odpowiedzią tę reakcję.</p>
             <label class="toggle"><input type="checkbox" data-path="replyReaction.enabled"><span></span>Włączone</label>
             <label class="field">
               <span>Emoji (zwykłe lub własne w formacie <code>&lt;:nazwa:id&gt;</code>)</span>
               <input type="text" data-path="replyReaction.emoji" maxlength="100">
             </label>
-            <div class="chips" id="emoji-picks"></div>
           </div>
         </div>
         <div class="card">
           <div class="card-head">
-            <h3>🟢 Status i opisy bota</h3>
+            <h3>Status i opisy bota</h3>
             <span class="muted small" id="gateway-line"></span>
           </div>
           <p class="muted small">Bot łączy się z Discordem co minutę (gateway), dzięki czemu świeci na zielono i pokazuje poniższe opisy — zmieniają się co ustawioną liczbę sekund.</p>
           <div class="grid two tight">
             <label class="field"><span>Status</span>
               <select data-path="presence.status">
-                <option value="online">🟢 Dostępny</option>
-                <option value="idle">🌙 Zaraz wracam</option>
-                <option value="dnd">⛔ Nie przeszkadzać</option>
+                <option value="online">Dostępny</option>
+                <option value="idle">Zaraz wracam</option>
+                <option value="dnd">Nie przeszkadzać</option>
               </select>
             </label>
             <label class="field"><span>Zmiana opisu co (sekundy, min. 15)</span><input type="number" min="15" max="3600" data-path="presence.rotateSeconds"></label>
@@ -152,7 +153,7 @@
           </div>
         </div>
         <div class="card">
-          <h3>🔒 Hasło panelu</h3>
+          <h3>Hasło panelu</h3>
           <p class="muted small" id="password-status">—</p>
           <form id="password-form" class="grid two tight">
             <label class="field"><span>Nowe hasło (min. 8 znaków)</span><input type="password" id="password-new" autocomplete="new-password" minlength="8"></label>
@@ -169,13 +170,105 @@
           <p class="muted">Domyślnie o dostępie decydują uprawnienia Discorda danej roli (np. „Banowanie członków”) oraz lista ról moderatorów z zakładki Ustawienia. Tutaj możesz ograniczyć pojedynczą komendę do wybranych ról — niezależnie od uprawnień Discorda.</p>
         </header>
         <div class="card">
-          <h3>🎛️ Nadpisania dla komend</h3>
+          <h3>Nadpisania dla komend</h3>
           <div id="permission-commands" class="perm-commands"></div>
         </div>
         <div class="card">
-          <h3>📋 Kto może użyć jakiej komendy — podgląd na żywo</h3>
+          <h3>Kto może użyć jakiej komendy — podgląd na żywo</h3>
           <p class="muted small">Liczone z ról serwera, uprawnień Discorda, listy moderatorów i nadpisań powyżej. Rola <code>@everyone</code> i role zarządzane przez integracje nie są pokazane.</p>
           <div class="table-wrap"><table class="table compact" id="permission-matrix"></table></div>
+        </div>
+      </section>
+
+      <!-- KANAŁY GŁOSOWE -->
+      <section id="view-glosowe" class="view">
+        <header class="view-head">
+          <h2>Kanały głosowe na żądanie</h2>
+          <p class="muted">Gdy ktoś wejdzie na wybrany „kanał do dołączenia”, bot tworzy mu osobny kanał głosowy i od razu go tam przenosi. Pusty kanał znika sam. Właściciel zarządza nim przyciskami na czacie kanału.</p>
+        </header>
+        <div id="voice-warning" class="banner warn hidden"></div>
+        <div class="card">
+          <label class="toggle"><input type="checkbox" data-path="tempVoice.enabled"><span></span>Włącz kanały na żądanie</label>
+          <h3>Kanały do dołączenia</h3>
+          <p class="muted small">W nazwie możesz użyć <code>{nick}</code> (nazwa osoby) i <code>{numer}</code> (kolejny numer kanału). „Prywatny” oznacza, że nowy kanał od razu jest zamknięty dla innych — właściciel może to zmienić przyciskiem.</p>
+          <div class="table-wrap"><table class="table compact" id="generators-table"></table></div>
+          <button type="button" class="btn ghost" id="add-generator">Dodaj kanał do dołączenia</button>
+        </div>
+        <div class="card">
+          <h3>Panel na czacie kanału</h3>
+          <label class="toggle"><input type="checkbox" data-path="tempVoice.dashboard.enabled"><span></span>Wysyłaj panel z przyciskami na czat nowego kanału</label>
+          <div class="grid two tight">
+            <label class="field"><span>Tytuł</span><input type="text" data-path="tempVoice.dashboard.title" maxlength="200"></label>
+            <label class="field"><span>Kolor paska</span>
+              <div class="color-row"><input type="color" id="dashboard-color-picker"><input type="text" data-path="tempVoice.dashboard.color" maxlength="7"></div>
+            </label>
+          </div>
+          <label class="field"><span>Opis</span><textarea data-path="tempVoice.dashboard.description" rows="2" maxlength="1000"></textarea></label>
+          <p class="muted small">Przyciski w panelu: Ustaw jako prywatny/publiczny, Dodaj osoby, Zmień nazwę, Zmień właściciela, Zmień limit, Zbanuj, Wyrzuć. Osoby wybiera się z listy, a nazwę i limit wpisuje w okienku — bez ID i komend.</p>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h3>Aktywne kanały</h3>
+            <button type="button" class="btn ghost small" id="voice-refresh">Odśwież</button>
+          </div>
+          <div class="table-wrap"><table class="table" id="voice-table"></table></div>
+        </div>
+      </section>
+
+      <!-- WIADOMOŚCI -->
+      <section id="view-wiadomosci" class="view">
+        <header class="view-head">
+          <h2>Wiadomości</h2>
+          <p class="muted">Wyślij wiadomość na wybrany kanał. Możesz dodać przyciski („kliknij, żeby dostać rolę”, drugie kliknięcie ją zdejmuje) albo listę wyboru ról — tak jak lista przy usuwaniu ostrzeżeń.</p>
+        </header>
+        <div id="roles-warning" class="banner warn hidden"></div>
+        <div class="grid editor">
+          <div class="card">
+            <div class="card-head">
+              <h3 id="msg-editor-title">Nowa wiadomość</h3>
+              <button type="button" class="btn ghost small hidden" id="msg-cancel">Anuluj edycję</button>
+            </div>
+            <label class="field"><span>Kanał</span><select id="msg-channel"></select></label>
+            <label class="field"><span>Treść</span><textarea id="msg-content" rows="3" maxlength="2000"></textarea></label>
+            <label class="toggle"><input type="checkbox" id="msg-embed-enabled"><span></span>Dodaj embed</label>
+            <div id="msg-embed-fields" class="hidden">
+              <div class="grid two tight">
+                <label class="field"><span>Tytuł</span><input type="text" id="msg-embed-title" maxlength="256"></label>
+                <label class="field"><span>Kolor</span>
+                  <div class="color-row"><input type="color" id="msg-embed-color-picker"><input type="text" id="msg-embed-color" maxlength="7"></div>
+                </label>
+              </div>
+              <label class="field"><span>Opis</span><textarea id="msg-embed-description" rows="4" maxlength="4000"></textarea></label>
+              <div class="grid two tight">
+                <label class="field"><span>Obrazek (link https://)</span><input type="text" id="msg-embed-image" maxlength="500"></label>
+                <label class="field"><span>Stopka</span><input type="text" id="msg-embed-footer" maxlength="200"></label>
+              </div>
+            </div>
+            <h4>Wybór ról</h4>
+            <div class="segmented" id="msg-role-mode">
+              <label><input type="radio" name="role-mode" value="none"><span>Bez wyboru</span></label>
+              <label><input type="radio" name="role-mode" value="buttons"><span>Przyciski</span></label>
+              <label><input type="radio" name="role-mode" value="select"><span>Lista wyboru</span></label>
+            </div>
+            <div id="msg-roles" class="hidden">
+              <div id="msg-select-options" class="grid two tight hidden">
+                <label class="field"><span>Tekst na zamkniętej liście</span><input type="text" id="msg-placeholder" maxlength="150" placeholder="Wybierz role"></label>
+                <label class="toggle"><input type="checkbox" id="msg-multiple"><span></span>Można wybrać kilka ról</label>
+              </div>
+              <div class="table-wrap"><table class="table compact" id="msg-items"></table></div>
+              <button type="button" class="btn ghost" id="msg-add-item">Dodaj rolę</button>
+              <p class="muted small">Na liście są tylko role, które bot może nadać (niższe niż jego rola i bez uprawnień administratora).</p>
+            </div>
+            <div class="actions"><button type="button" class="btn success" id="msg-send">Wyślij</button></div>
+          </div>
+          <div class="previews">
+            <div class="preview-label">Podgląd</div>
+            <div class="discord" id="msg-preview"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Wysłane wiadomości</h3>
+          <div class="table-wrap"><table class="table" id="msg-sent"></table></div>
         </div>
       </section>
 
@@ -204,7 +297,7 @@
               <span class="muted small">Kliknij, żeby wstawić zmienną:</span>
               <div class="chips" id="placeholder-chips"></div>
             </div>
-            <button type="button" class="btn ghost" id="embed-reset">↺ Przywróć domyślny wygląd tej akcji</button>
+            <button type="button" class="btn ghost" id="embed-reset">Przywróć domyślny wygląd tej akcji</button>
           </div>
           <div class="previews">
             <div class="preview-label">Podgląd na kanale</div>
@@ -223,14 +316,14 @@
         </header>
         <div class="grid two">
           <div class="card">
-            <h3>⚙️ Ustawienia ostrzeżeń</h3>
+            <h3>Ustawienia ostrzeżeń</h3>
             <label class="field"><span>Domyślna liczba punktów za ostrzeżenie</span><input type="number" min="1" max="100" data-path="warns.defaultPoints"></label>
             <label class="field"><span>Po ilu dniach ostrzeżenie wygasa (0 = nigdy)</span><input type="number" min="0" max="3650" data-path="warns.expiryDays">
               <small>Dotyczy nowych ostrzeżeń — już nadane zachowują swoje odliczanie.</small></label>
             <label class="toggle"><input type="checkbox" data-path="warns.showPointsToUser"><span></span>Pokazuj punkty ukaranemu (kanał + DM)</label>
           </div>
           <div class="card">
-            <h3>🚨 Automatyczne kary</h3>
+            <h3>Automatyczne kary</h3>
             <label class="toggle"><input type="checkbox" data-path="escalation.enabled"><span></span>Włącz automatyczne kary po przekroczeniu progu</label>
             <p class="muted small">„Alert” tylko pinguje role moderatorów na kanale logów — decyzję podejmujecie sami.</p>
             <div class="table-wrap"><table class="table compact" id="rules-table"></table></div>
@@ -239,7 +332,7 @@
         </div>
         <div class="card">
           <div class="card-head">
-            <h3>📋 Aktywne ostrzeżenia</h3>
+            <h3>Aktywne ostrzeżenia</h3>
             <input type="search" id="warn-search" placeholder="Szukaj po nicku lub ID…">
           </div>
           <div id="warn-users"></div>

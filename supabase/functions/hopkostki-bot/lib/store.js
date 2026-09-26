@@ -61,6 +61,36 @@ function mapNote(r) {
   };
 }
 
+function mapTempVoice(r) {
+  return {
+    channelId: r.channel_id,
+    guildId: r.guild_id,
+    ownerId: r.owner_id,
+    hubId: r.hub_id,
+    name: r.name,
+    limit: r.user_limit,
+    private: r.private,
+    allowed: r.allowed ?? [],
+    banned: r.banned ?? [],
+    dashboardMessageId: r.dashboard_message_id,
+    createdAt: ms(r.created_at),
+  };
+}
+
+const TEMP_VOICE_COLUMNS = {
+  ownerId: ['owner_id', 'text'],
+  name: ['name', 'text'],
+  limit: ['user_limit', 'int'],
+  private: ['private', 'boolean'],
+  allowed: ['allowed', 'jsonb'],
+  banned: ['banned', 'jsonb'],
+  dashboardMessageId: ['dashboard_message_id', 'text'],
+};
+
+function mapSentMessage(r) {
+  return { id: r.id, channelId: r.channel_id, messageId: r.message_id, data: r.data, createdAt: ms(r.created_at), updatedAt: ms(r.updated_at) };
+}
+
 // configTtlMs: jak długo trzymać konfigurację w pamięci (mniej zapytań = szybsza odpowiedź dla Discorda).
 export function createStore(query, { configTtlMs = 10_000 } = {}) {
   const one = async (text, params) => (await query(text, params))[0] ?? null;
@@ -349,6 +379,109 @@ export function createStore(query, { configTtlMs = 10_000 } = {}) {
     async removeNote(id) {
       const row = await one('delete from bot.notes where id = $1::int returning *', [id]);
       return row ? mapNote(row) : null;
+    },
+
+    // ---------- Stany głosowe (kto jest na jakim kanale) ----------
+    async getVoiceChannel(userId) {
+      return (await one('select channel_id from bot.voice_states where user_id = $1::text', [userId]))?.channel_id ?? null;
+    },
+
+    async setVoiceState(userId, channelId) {
+      if (!channelId) {
+        await query('delete from bot.voice_states where user_id = $1::text', [userId]);
+        return;
+      }
+      await query(
+        `insert into bot.voice_states (user_id, channel_id, updated_at) values ($1::text, $2::text, now())
+         on conflict (user_id) do update set channel_id = excluded.channel_id, updated_at = now()`,
+        [userId, channelId],
+      );
+    },
+
+    // Pełna lista z GUILD_CREATE — zastępuje wszystko, co było (po ponownym zalogowaniu do gatewaya).
+    async replaceVoiceStates(states) {
+      await query('delete from bot.voice_states');
+      if (!states.length) return;
+      await query(
+        `insert into bot.voice_states (user_id, channel_id)
+         select s->>'userId', s->>'channelId' from jsonb_array_elements($1::text::jsonb) s
+         on conflict (user_id) do update set channel_id = excluded.channel_id, updated_at = now()`,
+        [JSON.stringify(states)],
+      );
+    },
+
+    async voiceMembers(channelId) {
+      return (await query('select user_id from bot.voice_states where channel_id = $1::text order by updated_at', [channelId])).map((r) => r.user_id);
+    },
+
+    // ---------- Kanały głosowe na żądanie ----------
+    async addTempVoice({ channelId, guildId, ownerId, hubId, name, limit = 0, private: isPrivate = false }) {
+      const row = await one(
+        `insert into bot.temp_voice (channel_id, guild_id, owner_id, hub_id, name, user_limit, private)
+         values ($1::text, $2::text, $3::text, $4::text, $5::text, $6::int, $7::boolean) returning *`,
+        [channelId, guildId, ownerId, hubId ?? null, name ?? null, limit, isPrivate],
+      );
+      return mapTempVoice(row);
+    },
+
+    async getTempVoice(channelId) {
+      const row = await one('select * from bot.temp_voice where channel_id = $1::text', [channelId]);
+      return row ? mapTempVoice(row) : null;
+    },
+
+    async getTempVoiceByOwner(ownerId) {
+      const row = await one('select * from bot.temp_voice where owner_id = $1::text', [ownerId]);
+      return row ? mapTempVoice(row) : null;
+    },
+
+    async listTempVoice() {
+      return (await query('select * from bot.temp_voice order by created_at')).map(mapTempVoice);
+    },
+
+    async updateTempVoice(channelId, patch) {
+      const entries = Object.entries(patch).filter(([key]) => TEMP_VOICE_COLUMNS[key]);
+      if (!entries.length) return store.getTempVoice(channelId);
+      const sets = entries.map(([key], i) => {
+        const [column, type] = TEMP_VOICE_COLUMNS[key];
+        return `${column} = $${i + 2}::${type === 'jsonb' ? 'text::jsonb' : type}`;
+      });
+      const values = entries.map(([key, value]) => (TEMP_VOICE_COLUMNS[key][1] === 'jsonb' ? JSON.stringify(value) : value));
+      const row = await one(`update bot.temp_voice set ${sets.join(', ')} where channel_id = $1::text returning *`, [channelId, ...values]);
+      return row ? mapTempVoice(row) : null;
+    },
+
+    async deleteTempVoice(channelId) {
+      await query('delete from bot.temp_voice where channel_id = $1::text', [channelId]);
+    },
+
+    // ---------- Wiadomości wysłane z panelu ----------
+    async addSentMessage({ channelId, messageId, data }) {
+      const row = await one(
+        'insert into bot.sent_messages (channel_id, message_id, data) values ($1::text, $2::text, $3::text::jsonb) returning *',
+        [channelId, messageId, JSON.stringify(data)],
+      );
+      return mapSentMessage(row);
+    },
+
+    async listSentMessages() {
+      return (await query('select * from bot.sent_messages order by id desc limit 100')).map(mapSentMessage);
+    },
+
+    async getSentMessage(id) {
+      const row = await one('select * from bot.sent_messages where id = $1::int', [id]);
+      return row ? mapSentMessage(row) : null;
+    },
+
+    async updateSentMessage(id, data) {
+      const row = await one(
+        'update bot.sent_messages set data = $2::text::jsonb, updated_at = now() where id = $1::int returning *',
+        [id, JSON.stringify(data)],
+      );
+      return row ? mapSentMessage(row) : null;
+    },
+
+    async deleteSentMessage(id) {
+      await query('delete from bot.sent_messages where id = $1::int', [id]);
     },
 
     async stats() {

@@ -42,6 +42,12 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
     endpoint,
     webhook: [],
     overwrites: new Map(),
+    moves: [],
+    createdChannels: [],
+    deletedChannels: [],
+    channelEdits: [],
+    editedMessages: [],
+    removedOverwrites: [],
   };
 
   const channelMessages = (id) => {
@@ -100,8 +106,17 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
       return null;
     }],
     ['PATCH', /^\/guilds\/g1\/members\/(\w+)$/, ([, id], body) => {
+      if ('channel_id' in body) {
+        state.moves.push({ id, channel: body.channel_id });
+        return members.get(id);
+      }
       state.timeouts.push({ id, until: body.communication_disabled_until });
       return { ...members.get(id), communication_disabled_until: body.communication_disabled_until };
+    }],
+    ['POST', /^\/guilds\/g1\/channels$/, (m, body) => {
+      const channel = { id: snowflake(), guild_id: GUILD, permission_overwrites: [], ...body };
+      state.createdChannels.push(channel);
+      return channel;
     }],
     ['GET', /^\/users\/(\w+)$/, ([, id]) => users.get(id) ?? notFound(10013)],
     ['POST', /^\/users\/@me\/channels$/, (m, body) => {
@@ -144,7 +159,22 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
       state.overwrites.set(id, { id: target, ...body });
       return null;
     }],
-    ['PATCH', /^\/channels\/([\w-]+)$/, ([, id], body) => ({ id, ...body })],
+    ['DELETE', /^\/channels\/([\w-]+)\/permissions\/(\w+)$/, ([, id, target]) => {
+      state.removedOverwrites.push({ id, target });
+      return null;
+    }],
+    ['PATCH', /^\/channels\/([\w-]+)\/messages\/(\d+)$/, ([, channel, id], body) => {
+      state.editedMessages.push({ channel, id, body });
+      return { id, channel_id: channel, ...body };
+    }],
+    ['PATCH', /^\/channels\/([\w-]+)$/, ([, id], body) => {
+      state.channelEdits.push({ id, body });
+      return { id, ...body };
+    }],
+    ['DELETE', /^\/channels\/([\w-]+)$/, ([, id]) => {
+      state.deletedChannels.push(id);
+      return null;
+    }],
     ['PATCH', /^\/webhooks\/app\/([\w-]+)\/messages\/@original$/, ([, token], body) => {
       state.webhook.push({ op: 'edit', token, body });
       return postMessage('chan', body);

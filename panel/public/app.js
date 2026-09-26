@@ -16,12 +16,13 @@ const UNIT_FORMS = {
   mo: ['miesiąc', 'miesiące', 'miesięcy'],
 };
 const UNIT_LABELS = { m: 'Minuty', h: 'Godziny', d: 'Dni', w: 'Tygodnie', mo: 'Miesiące' };
-const RULE_ACTIONS = { alert: 'Alert 🔔', timeout: 'Timeout', kick: 'Kick', ban: 'Ban' };
+const RULE_ACTIONS = { alert: 'Alert', timeout: 'Timeout', kick: 'Kick', ban: 'Ban' };
 const PLACEHOLDERS = ['{uzytkownik}', '{nick}', '{moderator}', '{moderatorNick}', '{powod}', '{czas}', '{serwer}', '{sprawa}', '{typ}'];
-const ACTIVITY_LABELS = { custom: '💬 Własny opis', playing: '🎮 Gra w', listening: '🎧 Słucha', watching: '📺 Ogląda', competing: '🏆 Rywalizuje w' };
+const ACTIVITY_LABELS = { custom: 'Własny opis', playing: 'Gra w', listening: 'Słucha', watching: 'Ogląda', competing: 'Rywalizuje w' };
 const PRESENCE_PLACEHOLDERS = ['{czlonkowie}', '{online}', '{serwer}', '{ostrzezenia}', '{sprawy}'];
-const EMOJI_PICKS = ['🫓', '🍞', '👀', '✅', '🔥', '💀', '🫡', '😂'];
-const VIEWS = ['pulpit', 'ustawienia', 'uprawnienia', 'embedy', 'ostrzezenia', 'sprawy', 'bany'];
+const VIEWS = ['pulpit', 'ustawienia', 'uprawnienia', 'glosowe', 'wiadomosci', 'embedy', 'ostrzezenia', 'sprawy', 'bany'];
+const EMPTY_GUILD = { channels: [], voiceChannels: [], categories: [], roles: [], bot: null };
+const BUTTON_STYLES = { niebieski: 'Niebieski', szary: 'Szary', zielony: 'Zielony', czerwony: 'Czerwony' };
 const PANEL_PASSWORD_KEY = 'hopkostki-panel-password';
 const SAMPLE = { targetId: '111', target: 'hurownik_og', modId: '222', mod: 'dfgbh65', reason: 'Wielokrotne łamanie zasad' };
 
@@ -29,8 +30,10 @@ const state = {
   config: null,
   draft: null,
   defaults: null,
-  guild: { channels: [], roles: [] },
+  guild: EMPTY_GUILD,
   status: null,
+  msg: null,
+  sentMessages: [],
   view: 'pulpit',
   embedAction: 'ban',
   lastField: null,
@@ -49,6 +52,8 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 const esc = (value) =>
   String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const pad = (n) => String(n).padStart(2, '0');
+const stripEmoji = (text) =>
+  String(text ?? '').replace(/[\p{Extended_Pictographic}\u{FE0F}\u{20E3}]/gu, '').replace(/\s{2,}/g, ' ').trim();
 
 function getPath(obj, path) {
   return path.split('.').reduce((o, key) => o?.[key], obj);
@@ -200,14 +205,16 @@ let started = false;
 async function start() {
   const [{ config, defaults }, guild, { commands }] = await Promise.all([
     api('/config'),
-    api('/guild').catch(() => ({ channels: [], roles: [] })),
+    api('/guild').catch(() => EMPTY_GUILD),
     api('/commands').catch(() => ({ commands: [] })),
   ]);
   state.config = config;
   state.draft = clone(config);
   state.defaults = defaults;
-  state.guild = guild;
-  state.commandMeta = commands;
+  state.guild = { ...EMPTY_GUILD, ...guild };
+  // Opisy komend w Discordzie mają emoji — w panelu pokazujemy sam tekst.
+  state.commandMeta = commands.map((c) => ({ ...c, description: stripEmoji(c.description) }));
+  if (!state.msg) state.msg = { editingId: null, data: blankMessage() };
   revealApp();
   renderConfigUi();
   route();
@@ -248,6 +255,11 @@ function route() {
   if (state.view === 'bany') loadBans();
   if (state.view === 'embedy') renderPreview();
   if (state.view === 'uprawnienia') renderPermissions();
+  if (state.view === 'glosowe') loadVoice();
+  if (state.view === 'wiadomosci') {
+    renderMessageEditor();
+    loadSentMessages();
+  }
 }
 window.addEventListener('hashchange', route);
 
@@ -269,8 +281,13 @@ async function refreshStatus() {
   $('#bot-state').className = `state ${status.ready ? 'online' : 'offline'}`;
   if (status.bot) {
     $('#bot-name').textContent = status.bot.tag;
-    $('#bot-avatar').src = status.bot.avatar;
-    $('#bot-avatar').hidden = false;
+    const avatar = $('#bot-avatar');
+    avatar.onerror = () => {
+      avatar.hidden = true;
+      $('#bot-logo').hidden = false;
+    };
+    avatar.src = status.bot.avatar;
+    avatar.hidden = false;
     $('#bot-logo').hidden = true;
   }
   if (status.guild) {
@@ -284,7 +301,7 @@ async function refreshStatus() {
     $('#guild-name').textContent = status.ready ? 'Bot nie jest na żadnym serwerze' : '—';
   }
   const lastCron = status.cron?.at;
-  $('#status-text').textContent = status.ready ? '🟢 Działa' : '🔴 Nie działa';
+  $('#status-text').innerHTML = status.ready ? '<span class="dot ok"></span>Działa' : '<span class="dot bad"></span>Nie działa';
   $('#status-extra').textContent = status.ready
     ? `Ostatnie zadania okresowe: ${lastCron ? relTime(lastCron) : 'jeszcze nie było'}`
     : status.error ?? 'Sprawdź sekrety w Supabase.';
@@ -307,10 +324,13 @@ async function refreshStatus() {
 
   // Bot właśnie się połączył — dociągamy kanały i role do formularzy.
   if (status.ready && (!wasReady || !state.guild.channels.length)) {
-    state.guild = await api('/guild');
+    state.guild = { ...EMPTY_GUILD, ...(await api('/guild')) };
     renderChannelSelects();
     renderRoles();
+    renderGenerators();
+    renderBotWarnings();
     if (state.view === 'uprawnienia') renderPermissions();
+    if (state.view === 'wiadomosci') renderMessageEditor();
   }
   if (state.view === 'embedy') renderPreview();
   renderPasswordStatus(status);
@@ -338,7 +358,7 @@ function renderSetup(status) {
     ],
   ];
   $('#setup-list').innerHTML = items
-    .map(([done, label, hint]) => `<li><span>${done ? '✅' : '⏳'}</span><div>${esc(label)}${hint ? `<small>${esc(hint)}</small>` : ''}</div></li>`)
+    .map(([done, label, hint]) => `<li><span class="dot ${done ? 'ok' : 'wait'}"></span><div>${esc(label)}${hint ? `<small>${esc(hint)}</small>` : ''}</div></li>`)
     .join('');
 }
 
@@ -346,7 +366,7 @@ $('#setup-run').addEventListener('click', async () => {
   $('#setup-run').disabled = true;
   try {
     await api('/setup', { method: 'POST' });
-    toast('Komendy zarejestrowane ✅');
+    toast('Komendy zarejestrowane');
   } catch (error) {
     toast(error.message, 'error');
   }
@@ -361,7 +381,7 @@ function caseBadge(entry) {
 }
 
 function casesTable(items) {
-  if (!items.length) return '<tr><td class="empty">Brak spraw. Spokojnie jak na Hopkostkach. 🫓</td></tr>';
+  if (!items.length) return '<tr><td class="empty">Brak spraw.</td></tr>';
   const rows = items
     .map((c) => {
       const duration = c.duration ? formatDuration(c.duration.amount, c.duration.unit) : c.type === 'ban' ? 'perm.' : '—';
@@ -370,8 +390,8 @@ function casesTable(items) {
         <td><strong>#${c.id}</strong></td>
         <td>${caseBadge(c)}</td>
         <td>${esc(c.userTag)}<span class="note">${esc(c.userId)}</span></td>
-        <td>${esc(c.moderatorTag)}${c.auto ? ' 🤖' : ''}</td>
-        <td class="reason">${esc(c.reason)}${c.note ? `<span class="note">📝 ${esc(c.note)}</span>` : ''}</td>
+        <td>${esc(c.moderatorTag)}${c.auto ? ' (auto)' : ''}</td>
+        <td class="reason">${esc(c.reason)}${c.note ? `<span class="note">Notatka: ${esc(c.note)}</span>` : ''}</td>
         <td>${duration}${expiry}</td>
         <td>${esc(shortDate(c.createdAt))}</td>
       </tr>`;
@@ -387,9 +407,10 @@ function renderConfigUi() {
   renderRules();
   renderActivities();
   renderPermissions();
+  renderGenerators();
+  renderBotWarnings();
   renderEmbedTabs();
   fillInputs();
-  $('#emoji-picks').innerHTML = EMOJI_PICKS.map((e) => `<button type="button" class="chip emoji" data-emoji="${e}">${e}</button>`).join('');
   $('#presence-chips').innerHTML = PRESENCE_PLACEHOLDERS.map((p) => `<button type="button" class="chip" data-presence-placeholder="${p}">${p}</button>`).join('');
   $('#placeholder-chips').innerHTML = PLACEHOLDERS.map((p) => `<button type="button" class="chip" data-placeholder="${p}">${p}</button>`).join('');
   markDirty();
@@ -401,6 +422,8 @@ function fillInputs() {
     if (el.type === 'checkbox') el.checked = Boolean(value);
     else el.value = value ?? '';
   });
+  const dashboardColor = state.draft.tempVoice?.dashboard?.color;
+  if (/^#[0-9a-f]{6}$/i.test(dashboardColor ?? '')) $('#dashboard-color-picker').value = dashboardColor;
   fillEmbedFields();
 }
 
@@ -465,14 +488,6 @@ $('#roles-list').addEventListener('change', () => {
   markDirty();
 });
 
-$('#emoji-picks').addEventListener('click', (event) => {
-  const emoji = event.target.closest('[data-emoji]')?.dataset.emoji;
-  if (!emoji) return;
-  state.draft.replyReaction.emoji = emoji;
-  fillInputs();
-  markDirty();
-});
-
 // ---------- Uprawnienia komend ----------
 // Ta sama logika co po stronie bota (moderation.js/roleHasAccess) — liczona tu, żeby pokazać
 // podgląd na żywo bez proszenia bota o każdą kombinację roli i komendy.
@@ -532,7 +547,7 @@ function renderPermissionMatrix() {
   const head = `<thead><tr><th>Rola</th>${cmds.map((c) => `<th title="${esc(c.description)}">/${esc(c.name)}</th>`).join('')}</tr></thead>`;
   const body = roles
     .map((r) => {
-      const cells = cmds.map((c) => `<td class="perm-cell">${roleCanUse(r, c, state.draft) ? '✅' : '—'}</td>`).join('');
+      const cells = cmds.map((c) => `<td class="perm-cell">${roleCanUse(r, c, state.draft) ? '<span class="yes">tak</span>' : '<span class="no">—</span>'}</td>`).join('');
       return `<tr><td><span class="role-dot" style="background:${esc(r.color === '#000000' ? '#99aab5' : r.color)}"></span>${esc(r.name)}</td>${cells}</tr>`;
     })
     .join('');
@@ -577,7 +592,7 @@ function renderRules() {
         <td><select data-rule-field="action" aria-label="Akcja">${optionList(RULE_ACTIONS, rule.action)}</select></td>
         <td><input type="number" min="0" value="${rule.amount}" data-rule-field="amount" aria-label="Czas" ${noTime ? 'disabled' : ''}></td>
         <td><select data-rule-field="unit" aria-label="Jednostka" ${noTime ? 'disabled' : ''}>${optionList(UNIT_LABELS, rule.unit)}</select></td>
-        <td><button type="button" class="btn ghost small" data-rule-del title="Usuń próg">✕</button></td>
+        <td><button type="button" class="btn ghost small" data-rule-del>Usuń</button></td>
       </tr>`;
     })
     .join('');
@@ -620,7 +635,7 @@ function renderActivities() {
       (a, i) => `<tr data-activity="${i}">
         <td><select data-activity-field="type" aria-label="Rodzaj">${optionList(ACTIVITY_LABELS, a.type)}</select></td>
         <td class="grow"><input type="text" maxlength="128" value="${esc(a.text)}" data-activity-field="text" aria-label="Tekst opisu"></td>
-        <td><button type="button" class="btn ghost small" data-activity-del title="Usuń opis">✕</button></td>
+        <td><button type="button" class="btn ghost small" data-activity-del>Usuń</button></td>
       </tr>`,
     )
     .join('');
@@ -652,7 +667,7 @@ $('#activities-table').addEventListener('click', (event) => {
   markDirty();
 });
 $('#add-activity').addEventListener('click', () => {
-  state.draft.presence.activities.push({ type: 'custom', text: '🫓 ' });
+  state.draft.presence.activities.push({ type: 'custom', text: '' });
   renderActivities();
   markDirty();
   const inputs = $$('#activities-table [data-activity-field="text"]');
@@ -675,13 +690,8 @@ function renderPasswordStatus(status) {
   const text = $('#password-status');
   const form = $('#password-form');
   if (!text || !form) return;
-  if (status.passwordFixed) {
-    text.textContent = 'Hasło jest ustawione na stałe przez sekret PANEL_PASSWORD w Supabase (Edge Functions → Secrets) — zmień je tam.';
-    form.classList.add('hidden');
-  } else {
-    text.textContent = 'Hasło zostało wygenerowane automatycznie i trzyma je bot w bazie. Możesz je tutaj zmienić na własne.';
-    form.classList.remove('hidden');
-  }
+  text.textContent = 'Po zmianie poprzednie hasło przestaje działać (także to z sekretu PANEL_PASSWORD w Supabase).';
+  form.classList.remove('hidden');
 }
 
 $('#password-form').addEventListener('submit', async (event) => {
@@ -695,7 +705,7 @@ $('#password-form').addEventListener('submit', async (event) => {
     setPanelPassword(next);
     $('#password-new').value = '';
     $('#password-repeat').value = '';
-    toast('Hasło panelu zmienione ✅');
+    toast('Hasło panelu zmienione');
   } catch (error) {
     toast(error.message, 'error');
   } finally {
@@ -712,10 +722,353 @@ function renderGatewayLine(gateway) {
   }
   const fresh = Date.now() - (gateway.endedAt ?? gateway.startedAt) < 3 * MINUTE;
   const current = gateway.activity ? ` • „${gateway.activity}”` : '';
-  line.textContent = gateway.error
-    ? `🔴 ${gateway.error}`
-    : `${fresh ? '🟢' : '🟠'} gateway ${relTime(gateway.endedAt ?? gateway.startedAt)}${current}`;
+  line.innerHTML = gateway.error
+    ? `<span class="dot bad"></span>${esc(gateway.error)}`
+    : `<span class="dot ${fresh ? 'ok' : 'wait'}"></span>gateway ${relTime(gateway.endedAt ?? gateway.startedAt)}${esc(current)}`;
 }
+
+// ---------- Kanały głosowe na żądanie ----------
+function renderBotWarnings() {
+  const show = (el, missing, what) => {
+    el.classList.toggle('hidden', !missing?.length);
+    if (missing?.length) {
+      el.innerHTML = `<strong>Bot nie ma uprawnień: ${missing.map(esc).join(', ')}.</strong> Nadaj je roli bota (Ustawienia serwera → Role), inaczej ${what} nie zadziała.`;
+    }
+  };
+  show($('#voice-warning'), state.guild.bot?.missingVoice, 'tworzenie kanałów głosowych');
+  show($('#roles-warning'), state.guild.bot?.missingRoles, 'rozdawanie ról');
+}
+
+function channelOptions(list, selected, emptyLabel, prefix = '') {
+  let html = `<option value="">${esc(emptyLabel)}</option>`;
+  html += list
+    .map((c) => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${prefix}${esc(c.name)}${c.category ? ` · ${esc(c.category)}` : ''}</option>`)
+    .join('');
+  if (selected && !list.some((c) => c.id === selected)) html += `<option value="${esc(selected)}" selected>(nieznany kanał ${esc(selected)})</option>`;
+  return html;
+}
+
+function renderGenerators() {
+  const list = state.draft.tempVoice.generators;
+  const body = list
+    .map(
+      (g, i) => `<tr data-gen="${i}">
+        <td><select data-gen-field="hubId" aria-label="Kanał do dołączenia">${channelOptions(state.guild.voiceChannels, g.hubId, '— wybierz kanał —')}</select></td>
+        <td><select data-gen-field="categoryId" aria-label="Kategoria">${channelOptions(state.guild.categories, g.categoryId, 'Ta sama co kanał do dołączenia')}</select></td>
+        <td class="grow"><input type="text" maxlength="90" value="${esc(g.name)}" data-gen-field="name" aria-label="Nazwa nowego kanału"></td>
+        <td><input type="number" min="0" max="99" value="${g.limit}" data-gen-field="limit" aria-label="Limit osób"></td>
+        <td><label class="toggle small"><input type="checkbox" data-gen-field="private" ${g.private ? 'checked' : ''}><span></span>Prywatny</label></td>
+        <td><button type="button" class="btn ghost small" data-gen-del>Usuń</button></td>
+      </tr>`,
+    )
+    .join('');
+  $('#generators-table').innerHTML = `<thead><tr><th>Kanał do dołączenia</th><th>Kategoria nowych kanałów</th><th>Nazwa nowego kanału</th><th>Limit</th><th>Na start</th><th></th></tr></thead>
+    <tbody>${body || '<tr><td colspan="6" class="empty">Dodaj kanał, na który trzeba wejść, żeby dostać własny kanał.</td></tr>'}</tbody>`;
+  $('#add-generator').disabled = list.length >= 10;
+}
+
+function onGeneratorChange(event) {
+  const row = event.target.closest('[data-gen]');
+  const field = event.target.dataset.genField;
+  if (!row || !field) return;
+  event.stopPropagation();
+  const generator = state.draft.tempVoice.generators[Number(row.dataset.gen)];
+  if (field === 'private') generator.private = event.target.checked;
+  else if (field === 'limit') generator.limit = Math.min(99, Math.max(0, Math.floor(Number(event.target.value) || 0)));
+  else generator[field] = event.target.value;
+  markDirty();
+}
+$('#generators-table').addEventListener('input', onGeneratorChange);
+$('#generators-table').addEventListener('change', onGeneratorChange);
+$('#generators-table').addEventListener('click', (event) => {
+  const row = event.target.closest('[data-gen-del]') && event.target.closest('[data-gen]');
+  if (!row) return;
+  state.draft.tempVoice.generators.splice(Number(row.dataset.gen), 1);
+  renderGenerators();
+  markDirty();
+});
+$('#add-generator').addEventListener('click', () => {
+  state.draft.tempVoice.generators.push({ hubId: '', categoryId: '', name: 'Kanał {nick}', limit: 0, private: false });
+  renderGenerators();
+  markDirty();
+});
+$('#dashboard-color-picker').addEventListener('input', (event) => {
+  event.stopPropagation();
+  const field = $('[data-path="tempVoice.dashboard.color"]');
+  field.value = event.target.value.toUpperCase();
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+});
+
+async function loadVoice() {
+  try {
+    const { channels } = await api('/voice');
+    const rows = channels
+      .map(
+        (c) => `<tr>
+          <td><strong>${esc(c.name ?? 'kanał')}</strong><span class="note">${esc(c.channelId)}</span></td>
+          <td><span class="note">ID właściciela</span>${esc(c.ownerId)}</td>
+          <td>${c.members}</td>
+          <td>${c.private ? 'prywatny' : 'publiczny'}${c.limit ? ` • limit ${c.limit}` : ''}</td>
+          <td>${esc(relTime(c.createdAt))}</td>
+          <td><button type="button" class="btn danger small" data-voice-del="${esc(c.channelId)}">Usuń kanał</button></td>
+        </tr>`,
+      )
+      .join('');
+    $('#voice-table').innerHTML = channels.length
+      ? `<thead><tr><th>Kanał</th><th>Właściciel</th><th>Osób</th><th>Ustawienia</th><th>Utworzony</th><th></th></tr></thead><tbody>${rows}</tbody>`
+      : '<tr><td class="empty">Nikt nie ma teraz własnego kanału.</td></tr>';
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+$('#voice-refresh').addEventListener('click', loadVoice);
+$('#voice-table').addEventListener('click', async (event) => {
+  const id = event.target.closest('[data-voice-del]')?.dataset.voiceDel;
+  if (!id || !confirm('Usunąć ten kanał? Osoby na nim zostaną rozłączone.')) return;
+  try {
+    await api(`/voice/${id}`, { method: 'DELETE' });
+    toast('Kanał usunięty');
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+  loadVoice();
+});
+
+// ---------- Wiadomości (z przyciskami / listą ról) ----------
+function blankMessage() {
+  return {
+    channelId: '',
+    content: '',
+    embed: { enabled: false, title: '', description: '', color: '#5865F2', image: '', footer: '' },
+    roles: { mode: 'none', placeholder: '', multiple: true, items: [] },
+  };
+}
+
+const roleById = (id) => state.guild.roles.find((r) => r.id === id);
+
+function renderMessageEditor() {
+  if (!state.msg) return;
+  const { data, editingId } = state.msg;
+  $('#msg-editor-title').textContent = editingId ? 'Edycja wysłanej wiadomości' : 'Nowa wiadomość';
+  $('#msg-send').textContent = editingId ? 'Zapisz zmiany' : 'Wyślij';
+  $('#msg-cancel').classList.toggle('hidden', !editingId);
+  $('#msg-channel').innerHTML = channelOptions(state.guild.channels, data.channelId, '— wybierz kanał —', '#');
+  $('#msg-channel').disabled = Boolean(editingId);
+  $('#msg-content').value = data.content;
+  $('#msg-embed-enabled').checked = data.embed.enabled;
+  $('#msg-embed-title').value = data.embed.title;
+  $('#msg-embed-description').value = data.embed.description;
+  $('#msg-embed-color').value = data.embed.color;
+  if (/^#[0-9a-f]{6}$/i.test(data.embed.color)) $('#msg-embed-color-picker').value = data.embed.color;
+  $('#msg-embed-image').value = data.embed.image;
+  $('#msg-embed-footer').value = data.embed.footer;
+  $$('input[name="role-mode"]').forEach((el) => (el.checked = el.value === data.roles.mode));
+  $('#msg-placeholder').value = data.roles.placeholder;
+  $('#msg-multiple').checked = data.roles.multiple;
+  renderMessageItems();
+  syncMessageSections();
+}
+
+function syncMessageSections() {
+  const { data } = state.msg;
+  $('#msg-embed-fields').classList.toggle('hidden', !data.embed.enabled);
+  $('#msg-roles').classList.toggle('hidden', data.roles.mode === 'none');
+  $('#msg-select-options').classList.toggle('hidden', data.roles.mode !== 'select');
+  renderMessagePreview();
+}
+
+function renderMessageItems() {
+  const { mode, items } = state.msg.data.roles;
+  const assignable = state.guild.roles.filter((r) => r.assignable);
+  const roleSelect = (selected) => {
+    let html = '<option value="">— wybierz rolę —</option>';
+    html += assignable.map((r) => `<option value="${r.id}" ${r.id === selected ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
+    if (selected && !assignable.some((r) => r.id === selected)) {
+      html += `<option value="${esc(selected)}" selected>${esc(roleById(selected)?.name ?? 'nieznana rola')} (bot nie może jej nadać)</option>`;
+    }
+    return html;
+  };
+  const rows = items
+    .map(
+      (item, i) => `<tr data-item="${i}">
+        <td><select data-item-field="roleId" aria-label="Rola">${roleSelect(item.roleId)}</select></td>
+        <td class="grow"><input type="text" maxlength="80" value="${esc(item.label)}" data-item-field="label" placeholder="${esc(roleById(item.roleId)?.name ?? 'Nazwa roli')}" aria-label="Napis"></td>
+        <td>${
+          mode === 'buttons'
+            ? `<select data-item-field="style" aria-label="Kolor przycisku">${Object.entries(BUTTON_STYLES).map(([v, l]) => `<option value="${v}" ${v === item.style ? 'selected' : ''}>${l}</option>`).join('')}</select>`
+            : `<input type="text" maxlength="100" value="${esc(item.description)}" data-item-field="description" placeholder="Opis (opcjonalnie)" aria-label="Opis">`
+        }</td>
+        <td><button type="button" class="btn ghost small" data-item-del>Usuń</button></td>
+      </tr>`,
+    )
+    .join('');
+  const third = mode === 'buttons' ? 'Kolor' : 'Opis na liście';
+  $('#msg-items').innerHTML = `<thead><tr><th>Rola</th><th>Napis (puste = nazwa roli)</th><th>${third}</th><th></th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="4" class="empty">Dodaj role, które można będzie sobie wybrać.</td></tr>'}</tbody>`;
+  $('#msg-add-item').disabled = items.length >= 25;
+}
+
+function readMessageForm() {
+  const { data } = state.msg;
+  data.channelId = $('#msg-channel').value;
+  data.content = $('#msg-content').value;
+  data.embed.enabled = $('#msg-embed-enabled').checked;
+  data.embed.title = $('#msg-embed-title').value;
+  data.embed.description = $('#msg-embed-description').value;
+  data.embed.color = $('#msg-embed-color').value;
+  data.embed.image = $('#msg-embed-image').value.trim();
+  data.embed.footer = $('#msg-embed-footer').value;
+  data.roles.mode = $('input[name="role-mode"]:checked')?.value ?? 'none';
+  data.roles.placeholder = $('#msg-placeholder').value;
+  data.roles.multiple = $('#msg-multiple').checked;
+}
+
+function onMessageFormChange(event) {
+  if (!state.msg) return;
+  const el = event.target;
+  const row = el.closest('[data-item]');
+  if (row && el.dataset.itemField) {
+    state.msg.data.roles.items[Number(row.dataset.item)][el.dataset.itemField] = el.value;
+    if (el.dataset.itemField === 'roleId') renderMessageItems();
+    renderMessagePreview();
+    return;
+  }
+  const modeBefore = state.msg.data.roles.mode;
+  readMessageForm();
+  if (el.id === 'msg-embed-color' && /^#[0-9a-f]{6}$/i.test(el.value)) $('#msg-embed-color-picker').value = el.value;
+  if (state.msg.data.roles.mode !== modeBefore) renderMessageItems();
+  syncMessageSections();
+}
+$('#view-wiadomosci').addEventListener('input', onMessageFormChange);
+$('#view-wiadomosci').addEventListener('change', onMessageFormChange);
+$('#msg-embed-color-picker').addEventListener('input', (event) => {
+  event.stopPropagation();
+  $('#msg-embed-color').value = event.target.value.toUpperCase();
+  $('#msg-embed-color').dispatchEvent(new Event('input', { bubbles: true }));
+});
+$('#msg-items').addEventListener('click', (event) => {
+  const row = event.target.closest('[data-item-del]') && event.target.closest('[data-item]');
+  if (!row) return;
+  state.msg.data.roles.items.splice(Number(row.dataset.item), 1);
+  renderMessageItems();
+  renderMessagePreview();
+});
+$('#msg-add-item').addEventListener('click', () => {
+  const used = new Set(state.msg.data.roles.items.map((i) => i.roleId));
+  const next = state.guild.roles.find((r) => r.assignable && !used.has(r.id));
+  state.msg.data.roles.items.push({ roleId: next?.id ?? '', label: '', description: '', style: 'niebieski' });
+  renderMessageItems();
+  renderMessagePreview();
+});
+$('#msg-cancel').addEventListener('click', () => {
+  state.msg = { editingId: null, data: blankMessage() };
+  renderMessageEditor();
+});
+$('#msg-send').addEventListener('click', async () => {
+  readMessageForm();
+  const { editingId, data } = state.msg;
+  $('#msg-send').disabled = true;
+  try {
+    if (editingId) await api(`/messages/${editingId}`, { method: 'PUT', body: JSON.stringify(data) });
+    else await api('/messages', { method: 'POST', body: JSON.stringify(data) });
+    toast(editingId ? 'Wiadomość zaktualizowana' : 'Wiadomość wysłana');
+    if (!editingId) {
+      state.msg = { editingId: null, data: { ...blankMessage(), channelId: data.channelId } };
+      renderMessageEditor();
+    }
+    loadSentMessages();
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    $('#msg-send').disabled = false;
+  }
+});
+
+function renderMessagePreview() {
+  const d = state.msg.data;
+  const time = new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+  const avatar = state.status?.bot?.avatar ? `<img src="${esc(state.status.bot.avatar)}" alt="">` : 'EH';
+  const name = state.status?.bot?.tag?.split('#')[0] ?? 'Entuzjaści Hopkostki';
+  const hasEmbed = d.embed.enabled && (d.embed.title || d.embed.description || d.embed.image);
+  const embed = hasEmbed
+    ? `<div class="embed" style="border-left-color:${esc(/^#[0-9a-f]{6}$/i.test(d.embed.color) ? d.embed.color : '#5865F2')}">
+        <div>
+          ${d.embed.title ? `<div class="embed-title">${md(d.embed.title)}</div>` : ''}
+          ${d.embed.description ? `<div class="embed-desc">${md(d.embed.description)}</div>` : ''}
+          ${/^https:\/\//i.test(d.embed.image) ? `<img class="embed-image" src="${esc(d.embed.image)}" alt="">` : ''}
+        </div>
+        ${d.embed.footer ? `<div class="embed-footer">${esc(d.embed.footer)}</div>` : ''}
+      </div>`
+    : '';
+  const label = (item) => item.label || roleById(item.roleId)?.name || 'Rola';
+  let components = '';
+  if (d.roles.mode === 'buttons' && d.roles.items.length) {
+    components = `<div class="dc-buttons">${d.roles.items.map((i) => `<span class="dc-button ${esc(i.style)}">${esc(label(i))}</span>`).join('')}</div>`;
+  } else if (d.roles.mode === 'select' && d.roles.items.length) {
+    components = `<div class="dc-select"><span>${esc(d.roles.placeholder || 'Wybierz role')}</span><i></i></div>
+      <div class="dc-options">${d.roles.items.map((i) => `<div><b>${esc(label(i))}</b>${i.description ? `<small>${esc(i.description)}</small>` : ''}</div>`).join('')}</div>`;
+  }
+  const empty = !d.content && !hasEmbed;
+  $('#msg-preview').innerHTML = `<div class="msg">
+    <div class="msg-avatar">${avatar}</div>
+    <div>
+      <div class="msg-head"><span class="msg-name">${esc(name)}</span><span class="msg-app">APP</span><span class="msg-time">Dzisiaj o ${time}</span></div>
+      ${empty ? '<div class="muted small">Wpisz treść albo włącz embed.</div>' : ''}
+      ${d.content ? `<div>${md(d.content)}</div>` : ''}
+      ${embed}
+      ${components}
+    </div>
+  </div>`;
+}
+
+async function loadSentMessages() {
+  try {
+    const { messages } = await api('/messages');
+    state.sentMessages = messages;
+    const channelName = (id) => state.guild.channels.find((c) => c.id === id)?.name ?? id;
+    const modeText = (roles) => (roles.mode === 'buttons' ? `przyciski (${roles.items.length})` : roles.mode === 'select' ? `lista (${roles.items.length})` : '—');
+    const rows = messages
+      .map((m) => {
+        const snippet = m.data.content || m.data.embed.title || m.data.embed.description || '';
+        return `<tr>
+          <td>#${esc(channelName(m.channelId))}</td>
+          <td class="reason">${esc(snippet.slice(0, 120))}</td>
+          <td>${esc(modeText(m.data.roles))}</td>
+          <td>${esc(shortDate(m.updatedAt))}</td>
+          <td class="nowrap"><button type="button" class="btn ghost small" data-msg-edit="${m.id}">Edytuj</button>
+            <button type="button" class="btn danger small" data-msg-del="${m.id}">Usuń</button></td>
+        </tr>`;
+      })
+      .join('');
+    $('#msg-sent').innerHTML = messages.length
+      ? `<thead><tr><th>Kanał</th><th>Treść</th><th>Wybór ról</th><th>Zmieniona</th><th></th></tr></thead><tbody>${rows}</tbody>`
+      : '<tr><td class="empty">Nie wysłano jeszcze żadnej wiadomości z panelu.</td></tr>';
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+$('#msg-sent').addEventListener('click', async (event) => {
+  const editId = event.target.closest('[data-msg-edit]')?.dataset.msgEdit;
+  const delId = event.target.closest('[data-msg-del]')?.dataset.msgDel;
+  if (editId) {
+    const found = state.sentMessages.find((m) => String(m.id) === editId);
+    if (!found) return;
+    state.msg = { editingId: found.id, data: { ...blankMessage(), ...clone(found.data) } };
+    renderMessageEditor();
+    $('#view-wiadomosci').scrollIntoView({ behavior: 'smooth' });
+    return;
+  }
+  if (!delId || !confirm('Usunąć tę wiadomość z Discorda?')) return;
+  try {
+    await api(`/messages/${delId}`, { method: 'DELETE' });
+    toast('Wiadomość usunięta');
+    if (String(state.msg?.editingId) === delId) state.msg = { editingId: null, data: blankMessage() };
+    renderMessageEditor();
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+  loadSentMessages();
+});
 
 // ---------- Zapis ----------
 function isDirty() {
@@ -733,7 +1086,7 @@ $('#save').addEventListener('click', async () => {
     state.draft = clone(config);
     renderConfigUi();
     renderPreview();
-    toast('Zapisano ustawienia ✅');
+    toast('Zapisano ustawienia');
   } catch (error) {
     toast(error.message, 'error');
   } finally {
@@ -756,7 +1109,7 @@ function renderEmbedTabs() {
   $('#embed-tabs').innerHTML = Object.keys(ACTION_LABELS)
     .map((action) => {
       const style = state.draft.actions[action];
-      return `<button type="button" class="tab ${action === state.embedAction ? 'active' : ''}" data-action="${action}" style="--tab-color:${esc(style.color)}">${esc(style.emoji)} ${ACTION_LABELS[action]}</button>`;
+      return `<button type="button" class="tab ${action === state.embedAction ? 'active' : ''}" data-action="${action}" style="--tab-color:${esc(style.color)}">${ACTION_LABELS[action]}</button>`;
     })
     .join('');
 }
@@ -893,7 +1246,7 @@ function previewData(action) {
       reason,
     ],
     footer: `Sprawa #42 • ${brand}`,
-    thumb: '🧑',
+    thumb: { placeholder: true },
   };
 
   const dmFields = [...timeFields, issued, ...warnFields(showPoints, showPoints)];
@@ -906,7 +1259,7 @@ function previewData(action) {
     description: fill(style.dmDescription).trim(),
     fields: dmFields,
     footer: `Sprawa #42 • ${brand}`,
-    thumb: state.status?.guild?.icon ? { src: state.status.guild.icon } : '🫓',
+    thumb: state.status?.guild?.icon ? { src: state.status.guild.icon } : { placeholder: true },
   };
 
   return { color: style.color, channel, dm };
@@ -927,12 +1280,12 @@ function fieldsHtml(fields = []) {
 function thumbHtml(thumb) {
   if (!thumb) return '<div></div>';
   if (thumb.src) return `<div class="embed-thumb"><img src="${esc(thumb.src)}" alt=""></div>`;
-  return `<div class="embed-thumb">${esc(thumb)}</div>`;
+  return '<div class="embed-thumb"></div>';
 }
 
 function messageHtml({ color, embed, content, slash }) {
   const time = new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
-  const avatar = state.status?.bot?.avatar ? `<img src="${esc(state.status.bot.avatar)}" alt="">` : '🫓';
+  const avatar = state.status?.bot?.avatar ? `<img src="${esc(state.status.bot.avatar)}" alt="">` : 'EH';
   const name = state.status?.bot?.tag?.split('#')[0] ?? 'Entuzjaści Hopkostki';
   const icon = state.status?.guild?.icon ? `<img class="embed-author-icon" src="${esc(state.status.guild.icon)}" alt="">` : '';
   return `<div class="msg">
@@ -981,7 +1334,7 @@ async function loadWarns() {
 }
 
 function lifeBar(w) {
-  if (!w.expiresAt) return '<span class="muted small">♾️ nie wygasa</span>';
+  if (!w.expiresAt) return '<span class="muted small">nie wygasa</span>';
   return `<div class="countdown" data-expires="${w.expiresAt}">${formatCountdown(w.expiresAt - Date.now())}</div>
     <div class="lifebar" title="Wygasa ${esc(fullDate(w.expiresAt))}"><i data-created="${w.createdAt}" data-until="${w.expiresAt}"></i></div>`;
 }
@@ -992,7 +1345,7 @@ function renderWarns() {
   const scale = state.config.escalation.rules.at(-1)?.points ?? 10;
 
   if (!users.length) {
-    $('#warn-users').innerHTML = `<p class="empty">${query ? 'Nic nie znaleziono.' : 'Nikt nie ma aktywnych ostrzeżeń. 🎉'}</p>`;
+    $('#warn-users').innerHTML = `<p class="empty">${query ? 'Nic nie znaleziono.' : 'Nikt nie ma aktywnych ostrzeżeń.'}</p>`;
     return;
   }
   $('#warn-users').innerHTML = users
@@ -1118,7 +1471,7 @@ $('#bans-table').addEventListener('click', async (event) => {
   if (!userId || !confirm('Zdjąć tego bana teraz?')) return;
   try {
     await api(`/tempbans/${userId}/unban`, { method: 'POST' });
-    toast('Ban zdjęty ✅');
+    toast('Ban zdjęty');
   } catch (error) {
     toast(error.message, 'error');
   }

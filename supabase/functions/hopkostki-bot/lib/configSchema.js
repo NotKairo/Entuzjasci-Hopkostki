@@ -55,6 +55,21 @@ function cleanActivities(list, fallback) {
     .filter((a) => ACTIVITY_TYPES.includes(a.type) && a.text);
 }
 
+function cleanGenerators(list, fallback) {
+  if (!Array.isArray(list)) return fallback;
+  const seen = new Set();
+  return list
+    .slice(0, 10)
+    .map((g) => ({
+      hubId: String(g?.hubId ?? ''),
+      categoryId: SNOWFLAKE.test(String(g?.categoryId ?? '')) ? String(g.categoryId) : '',
+      name: String(g?.name ?? '').trim().slice(0, 90) || 'Kanał {nick}',
+      limit: Math.min(99, Math.max(0, Math.floor(Number(g?.limit) || 0))),
+      private: g?.private === true,
+    }))
+    .filter((g) => SNOWFLAKE.test(g.hubId) && !seen.has(g.hubId) && seen.add(g.hubId));
+}
+
 // { nazwaKomendy: ['idRoli', ...] } — tylko prawdziwe nazwy komend, tylko poprawne ID ról, maks. 25 ról każda.
 function cleanCommandPermissions(input, current) {
   if (!isPlainObject(input)) return current ?? {};
@@ -74,6 +89,7 @@ function cleanValue(path, input, current, def) {
   }
   if (path === 'escalation.rules') return cleanRules(input, current);
   if (path === 'presence.activities') return cleanActivities(input, current);
+  if (path === 'tempVoice.generators') return cleanGenerators(input, current);
   if (path === 'presence.status') return PRESENCE_STATUSES.includes(input) ? input : current;
   if (path === 'presence.rotateSeconds') {
     const n = Math.floor(Number(input));

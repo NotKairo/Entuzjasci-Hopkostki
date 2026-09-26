@@ -35,9 +35,10 @@ i harmonogram są wdrożone. Brakuje tylko Twojego tokenu bota:
 
 Jeśli bota nie ma jeszcze na serwerze, zaproś go tym linkiem (podmień `TWOJE_CLIENT_ID` na *Application ID*):
 ```
-https://discord.com/oauth2/authorize?client_id=TWOJE_CLIENT_ID&scope=bot+applications.commands&permissions=1374658325590
+https://discord.com/oauth2/authorize?client_id=TWOJE_CLIENT_ID&scope=bot+applications.commands&permissions=1374676151382
 ```
-Potem przesuń rolę bota **wyżej** niż role osób, które ma karać (Ustawienia serwera → Role).
+Potem przesuń rolę bota **wyżej** niż role osób, które ma karać (Ustawienia serwera → Role). Do kanałów głosowych
+na żądanie rola bota potrzebuje też **Łączenie** i **Przenoszenie członków** — panel pokaże, jeśli ich brakuje.
 
 ## Panel konfiguracyjny
 
@@ -52,9 +53,9 @@ wyświetlać stron HTML (zamienia je na zwykły tekst), więc sama strona leży 
 publikowana automatycznie z `panel/public/` po każdej zmianie na `main`), a dane i hasło obsługuje API bota
 na Supabase — strona tylko je woła.
 
-Przy pierwszym wejściu panel zapyta o **hasło** — to `PANEL_PASSWORD` z sekretów Supabase, albo (jeśli go
-nie ustawiłeś) hasło wygenerowane automatycznie przy pierwszym użyciu i zapamiętane przez bota w bazie;
-zmienisz je potem samodzielnie w zakładce **Ustawienia → 🔒 Hasło panelu**. Hasło zapamiętuje przeglądarka
+Przy pierwszym wejściu panel zapyta o **hasło**. Hasło zmienione w zakładce **Ustawienia → Hasło panelu** ma
+pierwszeństwo; dopóki go nie zmienisz, działa `PANEL_PASSWORD` z sekretów Supabase (a bez sekretu — hasło
+wygenerowane przez bota przy pierwszym użyciu). Hasło zapamiętuje przeglądarka
 na czas karty (do „Wyloguj” albo zamknięcia karty).
 
 W panelu są:
@@ -64,6 +65,9 @@ W panelu są:
   status i rotujące opisy bota oraz hasło panelu.
 - **Uprawnienia:** dla każdej komendy możesz nadpisać domyślne uprawnienie Discorda i ograniczyć ją do
   wybranych ról — plus tabela pokazująca na żywo, która rola może użyć której komendy.
+- **Kanały głosowe:** kanały na żądanie — patrz niżej.
+- **Wiadomości:** wysyłanie wiadomości (treść + embed) z przyciskami ról albo listą wyboru ról; wysłane można
+  potem edytować albo usunąć.
 - **Wygląd embedów:** edycja każdej akcji z podglądem na żywo w stylu Discorda (na kanale i w DM).
 - **Ostrzeżenia:** czas wygasania (domyślnie 60 dni), domyślne punkty, progi automatycznych kar
   i wszystkie aktywne ostrzeżenia z odliczaniem na żywo oraz przyciskiem „Usuń”.
@@ -71,6 +75,15 @@ W panelu są:
 - **Tymczasowe bany:** odliczanie do końca bana i przycisk „Odbanuj teraz”.
 
 Zmiany zapisujesz przyciskiem na dole i działają od razu.
+
+### Kanały głosowe na żądanie
+
+W zakładce **Kanały głosowe** wybierasz „kanał do dołączenia” (np. „Dołącz, aby utworzyć”), kategorię, nazwę
+(`{nick}`, `{numer}`), limit osób i czy nowy kanał ma być od razu prywatny. Kto wejdzie na kanał do dołączenia,
+dostaje własny kanał i jest na niego przenoszony; pusty kanał znika sam. Na czacie kanału bot wysyła panel
+(po polsku) z przyciskami: **Ustaw jako prywatny/publiczny**, **Dodaj osoby**, **Zmień nazwę**, **Zmień
+właściciela**, **Zmień limit**, **Zbanuj**, **Wyrzuć** — osoby wybiera się z listy, nazwę i limit wpisuje w
+okienku. Z panelu korzysta właściciel kanału (oraz osoby z uprawnieniem „Zarządzanie kanałami”).
 
 ### Uprawnienia — kto może użyć jakiej komendy
 

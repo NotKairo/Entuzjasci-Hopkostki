@@ -56,6 +56,21 @@ export const DEFAULT_CONFIG = {
     ],
   },
 
+  // Kanały głosowe na żądanie: wejście na „kanał do dołączenia” (hubId) tworzy osobny kanał tej osoby
+  // i przenosi ją tam; pusty kanał znika sam. Zmienne w nazwie: {nick} {numer}.
+  // generators: [{ hubId, categoryId ('' = ta sama kategoria co hub), name, limit (0 = bez limitu), private }]
+  tempVoice: {
+    enabled: false,
+    generators: [],
+    // Panel z przyciskami wysyłany na czat nowego kanału.
+    dashboard: {
+      enabled: true,
+      title: 'Panel kanału',
+      description: 'Zarządzaj swoim kanałem głosowym przyciskami poniżej.',
+      color: '#57F287',
+    },
+  },
+
   // Automatyczne kary po przekroczeniu progu aktywnych punktów ostrzeżeń.
   // action: alert (tylko powiadomienie w logach) | timeout | kick | ban
   escalation: {

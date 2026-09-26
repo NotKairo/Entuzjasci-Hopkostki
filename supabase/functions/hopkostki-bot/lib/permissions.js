@@ -13,6 +13,9 @@ export const P = {
   READ_MESSAGE_HISTORY: 1n << 16n,
   MENTION_EVERYONE: 1n << 17n,
   USE_EXTERNAL_EMOJIS: 1n << 18n,
+  CONNECT: 1n << 20n,
+  SPEAK: 1n << 21n,
+  MOVE_MEMBERS: 1n << 24n,
   MANAGE_NICKNAMES: 1n << 27n,
   MANAGE_ROLES: 1n << 28n,
   SEND_MESSAGES_IN_THREADS: 1n << 38n,
@@ -28,6 +31,8 @@ export const PERMISSION_LABELS = {
   [String(P.MANAGE_CHANNELS)]: 'Zarządzanie kanałami',
   [String(P.MANAGE_ROLES)]: 'Zarządzanie rolami',
   [String(P.MANAGE_NICKNAMES)]: 'Zarządzanie pseudonimami',
+  [String(P.CONNECT)]: 'Łączenie (kanały głosowe)',
+  [String(P.MOVE_MEMBERS)]: 'Przenoszenie członków',
 };
 
 export function permissionLabel(bits) {

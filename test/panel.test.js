@@ -61,10 +61,11 @@ test('API panelu: metadane komend i nadpisania uprawnień', async () => {
   assert.deepEqual(config.commandPermissions, { kick: [roleId] });
 });
 
-test('hasło panelu: zmiana działa tylko gdy nie jest ustawione na stałe przez sekret', async () => {
+test('hasło panelu: zmienione w panelu ma pierwszeństwo przed sekretem, bez sekretu generuje się samo', async () => {
   const s = await setup();
-  const fixed = await s.call('/password', { method: 'POST', body: { next: 'nowehaslo123' } });
-  assert.equal(fixed.status, 400);
+  assert.equal((await s.call('/password', { method: 'POST', body: { next: 'nowehaslo123' } })).status, 200);
+  assert.equal((await s.call('/status')).status, 401, 'hasło z sekretu przestaje działać');
+  assert.equal((await s.call('/status', { password: 'nowehaslo123' })).status, 200);
 
   // Bez sekretu PANEL_PASSWORD hasło jest generowane automatycznie i trzymane w bot.state.
   const { store } = await createTestStore();
