@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { createTestStore } from './support/db.js';
 import { fakeDiscord, makeBot } from './support/discord.js';
-import { createHandler } from '../supabase/functions/hopkostki-bot/lib/app.js';
+import { createHandler, PANEL_SITE } from '../supabase/functions/hopkostki-bot/lib/app.js';
 import { createPanelServer } from '../panel/server.js';
 
 const BASE = 'https://x.supabase.co/functions/v1/hopkostki-bot/panel';
@@ -89,28 +89,30 @@ test('hasło panelu: zmiana działa tylko gdy nie jest ustawione na stałe przez
   assert.equal(tooShort.status, 400);
 });
 
-test('panel jest hostowany przez samą funkcję: przekierowanie, strona i pliki statyczne bez hasła', async () => {
+test('adres panelu w funkcji przekierowuje na GitHub Pages, a API wpuszcza tylko stronę panelu (CORS)', async () => {
   const s = await setup();
-  const bare = await s.handle(new Request(`https://x.supabase.co/functions/v1/hopkostki-bot/panel`));
-  assert.equal(bare.status, 302);
-  assert.equal(bare.headers.get('location'), 'https://x.supabase.co/functions/v1/hopkostki-bot/panel/');
+  for (const url of ['https://x.supabase.co/functions/v1/hopkostki-bot/panel', `${BASE}/`]) {
+    const res = await s.handle(new Request(url));
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get('location'), PANEL_SITE);
+  }
 
-  const index = await s.handle(new Request(`${BASE}/`));
-  assert.match(await index.text(), /Panel — Entuzjaści Hopkostki/);
-  assert.equal(index.headers.get('content-type'), 'text/html; charset=utf-8');
+  const origin = new URL(PANEL_SITE).origin;
+  const preflight = await s.handle(new Request(`${BASE}/config`, { method: 'OPTIONS', headers: { origin } }));
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'), origin);
+  assert.match(preflight.headers.get('access-control-allow-headers'), /x-panel-password/);
+  assert.match(preflight.headers.get('access-control-allow-methods'), /PUT/);
 
-  const js = await s.handle(new Request(`${BASE}/app.js`));
-  assert.equal(js.status, 200);
-  assert.equal(js.headers.get('content-type'), 'text/javascript; charset=utf-8');
-  assert.match(await js.text(), /getPanelPassword/);
+  const ok = await s.handle(new Request(`${BASE}/status`, { headers: { origin, 'x-panel-password': 'tajne' } }));
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.get('access-control-allow-origin'), origin);
+  const denied = await s.handle(new Request(`${BASE}/status`, { headers: { origin } }));
+  assert.equal(denied.status, 401);
+  assert.equal(denied.headers.get('access-control-allow-origin'), origin, 'przeglądarka musi móc przeczytać „złe hasło”');
 
-  const css = await s.handle(new Request(`${BASE}/style.css`));
-  assert.equal(css.status, 200);
-  assert.equal(css.headers.get('content-type'), 'text/css; charset=utf-8');
-
-  // Te pliki są publiczne — bez nagłówka hasła, w przeciwieństwie do reszty API panelu.
-  const status = await s.handle(new Request(`${BASE}/status`));
-  assert.equal(status.status, 401);
+  const stranger = await s.handle(new Request(`${BASE}/status`, { headers: { origin: 'https://evil.example', 'x-panel-password': 'tajne' } }));
+  assert.equal(stranger.headers.get('access-control-allow-origin'), null);
 });
 
 test('API panelu: usuwanie ostrzeżenia i ręczne odbanowanie', async () => {

@@ -93,9 +93,12 @@ function formatCountdown(ms) {
   return `${d ? `${d} ${plural(d, UNIT_FORMS.d)} ` : ''}${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
-// Hasło żyje tylko w tej karcie (sessionStorage) — panel jest hostowany razem z botem na Supabase,
-// więc wywołania idą tym samym originem; dlatego ścieżka jest WZGLĘDNA (bez wiodącego "/"): dzięki temu
-// działa niezależnie od tego, pod jakim prefiksem funkcja jest zamontowana (…/hopkostki-bot/panel/…).
+// Strona stoi na GitHub Pages, a API panelu w funkcji Edge na Supabase (Supabase nie serwuje stron HTML).
+// Lokalny wrapper (npm run panel) sam przekazuje wywołania do bota, więc tam ścieżki zostają względne.
+const REMOTE_API = 'https://ucjmbdogtzztrkorqzjq.supabase.co/functions/v1/hopkostki-bot/panel/';
+const API_BASE = ['localhost', '127.0.0.1'].includes(location.hostname) ? '' : REMOTE_API;
+
+// Hasło żyje tylko w tej karcie (sessionStorage).
 function getPanelPassword() {
   try {
     return sessionStorage.getItem(PANEL_PASSWORD_KEY) || '';
@@ -117,7 +120,7 @@ function clearPanelPassword() {
 }
 
 async function api(path, options = {}) {
-  const res = await fetch(path.replace(/^\/+/, ''), {
+  const res = await fetch(API_BASE + path.replace(/^\/+/, ''), {
     ...options,
     headers: { 'Content-Type': 'application/json', 'x-panel-password': getPanelPassword(), ...(options.headers ?? {}) },
   });

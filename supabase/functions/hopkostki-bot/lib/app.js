@@ -2,8 +2,8 @@
 //   POST /            interakcje Discorda (podpis Ed25519)
 //   POST /cron        zadania okresowe (sekret z bazy, wywołuje pg_cron)
 //   POST /gateway     sesja gateway w tle (status online + opisy), też z pg_cron
-//   GET  /panel/      strona konfiguracyjna (hasło wpisuje się w przeglądarce)
-//   *    /panel/...   API panelu (nagłówek x-panel-password)
+//   GET  /panel/      przekierowanie na stronę panelu (GitHub Pages)
+//   *    /panel/...   API panelu (nagłówek x-panel-password, CORS dla strony panelu)
 //   GET  /health      szybka diagnostyka bez sekretów
 
 import { handleInteraction } from './interactions.js';
@@ -12,11 +12,26 @@ import { runGatewaySession } from './gateway.js';
 import { handlePanel } from './panel.js';
 import { getApp } from './moderation.js';
 import { verifyDiscordRequest, ed25519Supported, safeEqual } from './verify.js';
-import { PANEL_INDEX_HTML, PANEL_APP_JS, PANEL_STYLE_CSS } from './panelAssets.js';
 
-const json = (body, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
-const staticFile = (body, contentType) => new Response(body, { status: 200, headers: { 'Content-Type': contentType, 'Cache-Control': 'no-store' } });
+// Supabase nie serwuje stron HTML z funkcji Edge (text/html zamienia na text/plain), więc sama strona
+// panelu stoi na GitHub Pages, a tutaj zostaje jej API.
+export const PANEL_SITE = 'https://notkairo.github.io/Entuzjasci-Hopkostki/';
+const PANEL_ORIGINS = new Set([new URL(PANEL_SITE).origin]);
+
+const json = (body, status = 200, headers = {}) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers } });
+
+function corsHeaders(request) {
+  const origin = request.headers.get('origin');
+  if (!origin || !PANEL_ORIGINS.has(origin)) return { Vary: 'Origin' };
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'content-type, x-panel-password',
+    'Access-Control-Max-Age': '86400',
+    Vary: 'Origin',
+  };
+}
 
 function randomPassword() {
   const bytes = new Uint8Array(18);
@@ -88,10 +103,10 @@ export function createHandler(bot, { waitUntil = (promise) => promise } = {}) {
     return json({ started: true }, 202);
   }
 
-  async function panel(request, url, path) {
+  async function panel(request, url, path, cors) {
     const { password } = await resolvePanelPassword(bot);
     if (!(await safeEqual(request.headers.get('x-panel-password'), password))) {
-      return json({ error: 'Złe hasło panelu.' }, 401);
+      return json({ error: 'Złe hasło panelu.' }, 401, cors);
     }
     let body = {};
     if (!['GET', 'HEAD'].includes(request.method)) body = await request.json().catch(() => ({}));
@@ -101,12 +116,13 @@ export function createHandler(bot, { waitUntil = (promise) => promise } = {}) {
       query: Object.fromEntries(url.searchParams),
       body,
     });
-    return json(result.body, result.status);
+    return json(result.body, result.status, cors);
   }
 
   return async function handle(request) {
     const url = new URL(request.url);
     const path = url.pathname.replace(/^.*?\/hopkostki-bot(?=\/|$)/, '') || '/';
+    const cors = path.startsWith('/panel') ? corsHeaders(request) : {};
     try {
       if (path === '/health') {
         return json({
@@ -118,23 +134,16 @@ export function createHandler(bot, { waitUntil = (promise) => promise } = {}) {
       }
       if (path === '/cron' && request.method === 'POST') return await cron(request, url);
       if (path === '/gateway' && request.method === 'POST') return await gateway(request);
-      // Strona panelu jest publiczna (logowanie hasłem dzieje się w przeglądarce) — bez ukośnika na końcu
-      // przekierowujemy, żeby względne ścieżki (app.js, style.css, wywołania API) rozwiązywały się poprawnie
-      // niezależnie od tego, pod jakim prefiksem funkcja jest zamontowana.
-      if (path === '/panel' && request.method === 'GET') {
-        const dest = new URL(request.url);
-        dest.pathname = `${url.pathname}/`; // dopisujemy "/" do PRAWDZIWEJ ścieżki, nie tej po ucięciu prefiksu
-        return Response.redirect(dest.toString(), 302);
+      if ((path === '/panel' || path === '/panel/') && request.method === 'GET') return Response.redirect(PANEL_SITE, 302);
+      if (path.startsWith('/panel/')) {
+        if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+        return await panel(request, url, path, cors);
       }
-      if (path === '/panel/' && request.method === 'GET') return staticFile(PANEL_INDEX_HTML, 'text/html; charset=utf-8');
-      if (path === '/panel/app.js' && request.method === 'GET') return staticFile(PANEL_APP_JS, 'text/javascript; charset=utf-8');
-      if (path === '/panel/style.css' && request.method === 'GET') return staticFile(PANEL_STYLE_CSS, 'text/css; charset=utf-8');
-      if (path.startsWith('/panel/')) return await panel(request, url, path);
       if (request.method === 'POST' && (path === '/' || path === '/interactions')) return await discord(request);
       return json({ error: 'Nie znaleziono' }, 404);
     } catch (error) {
       console.error('[handler]', error);
-      return json({ error: 'Błąd serwera' }, 500);
+      return json({ error: 'Błąd serwera' }, 500, cors);
     }
   };
 }

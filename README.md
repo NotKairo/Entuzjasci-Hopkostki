@@ -1,7 +1,7 @@
 # 🫓 Entuzjaści Hopkostki — bot moderacyjny
 
 Bot moderacyjny na Discorda dla serwera **Entuzjaści Hopkostki**. Działa 24/7 na **Supabase**, więc nie
-musisz trzymać włączonego komputera. Panel konfiguracyjny też jest hostowany na Supabase — wystarczy
+musisz trzymać włączonego komputera. Panel konfiguracyjny to strona na GitHub Pages — wystarczy
 przeglądarka, nic nie trzeba instalować ani uruchamiać lokalnie.
 
 ```
@@ -9,7 +9,7 @@ Discord ──(komendy /ban, /warn…)──▶ Supabase Edge Function "hopkostk
                     ▲            ▲                    ▲                              ▲
                     │            │   pg_cron co 30 s ─┘ (wygasanie banów/ostrzeżeń)   │
         gateway co minutę        │   pg_cron co minutę ─ sesja gateway (status online)│
-   (status online, reakcje 🫓)   └─────────────── panel: …/hopkostki-bot/panel/ ──────┘
+   (status online, reakcje 🫓)   └── API panelu …/hopkostki-bot/panel/* ◀── strona na GitHub Pages
 ```
 
 ## Szybki start (3 kroki)
@@ -41,11 +41,16 @@ Potem przesuń rolę bota **wyżej** niż role osób, które ma karać (Ustawien
 
 ## Panel konfiguracyjny
 
-Panel jest hostowany przez samą funkcję Edge — nic nie instalujesz, wystarczy otworzyć w przeglądarce:
+Nic nie instalujesz, wystarczy otworzyć w przeglądarce:
 
 ```
-https://ucjmbdogtzztrkorqzjq.supabase.co/functions/v1/hopkostki-bot/panel/
+https://notkairo.github.io/Entuzjasci-Hopkostki/
 ```
+
+Stary adres `…/functions/v1/hopkostki-bot/panel/` przekierowuje tutaj. Supabase nie pozwala funkcjom Edge
+wyświetlać stron HTML (zamienia je na zwykły tekst), więc sama strona leży na GitHub Pages (gałąź `gh-pages`,
+publikowana automatycznie z `panel/public/` po każdej zmianie na `main`), a dane i hasło obsługuje API bota
+na Supabase — strona tylko je woła.
 
 Przy pierwszym wejściu panel zapyta o **hasło** — to `PANEL_PASSWORD` z sekretów Supabase, albo (jeśli go
 nie ustawiłeś) hasło wygenerowane automatycznie przy pierwszym użyciu i zapamiętane przez bota w bazie;
@@ -81,14 +86,14 @@ serwera i pokazuje dokładnie, kto ma dostęp do czego.
 
 ### Uruchomienie panelu lokalnie (opcjonalnie)
 
-Panel działa w pełni bez tego — to tylko wygodny skrót, jeśli wolisz `localhost` zamiast adresu Supabase.
+Panel działa w pełni bez tego — to tylko wygodny skrót, jeśli wolisz `localhost` zamiast GitHub Pages.
 Potrzebujesz Node.js 18.17+ (https://nodejs.org), zero zależności do zainstalowania:
 
 ```bash
 npm run panel
 ```
 
-Otwiera `http://localhost:3000` — te same pliki co wersja hostowana, serwer tylko przekazuje resztę żądań
+Otwiera `http://localhost:3000` — te same pliki co na GitHub Pages, serwer tylko przekazuje resztę żądań
 do bota na Supabase (adres z `BOT_URL` w `.env`, domyślnie projekt „Entuzjaści Hopkostki”). Hasło i tak
 wpisujesz w przeglądarce.
 
@@ -163,7 +168,6 @@ gatewayem w krótkich sesjach (~55 s co minutę) zamiast trzymać je stale:
 ```bash
 npm install        # tylko do testów (PGlite = Postgres w pamięci)
 npm test           # testy kar, ostrzeżeń, wygasania, podpisów, crona, gateway, panelu i SQL na prawdziwym Postgresie
-npm run build:panel  # po KAŻDEJ zmianie w panel/public/* — wbudowuje pliki do funkcji Edge (lib/panelAssets.js)
 ```
 
 Struktura:
@@ -172,7 +176,7 @@ supabase/
   migrations/                     schemat "bot" + zadania pg_cron (30 s: wygasanie/reakcje zapasowe; co minutę: gateway)
   functions/hopkostki-bot/
     index.ts                      wejście funkcji Edge (Deno): postgres.js + sekrety
-    lib/app.js                    router: / (Discord), /cron, /gateway, /panel/*, /health
+    lib/app.js                    router: / (Discord), /cron, /gateway, /panel/* (API + CORS), /health
     lib/interactions.js           obsługa interakcji (odroczone odpowiedzi + praca w tle)
     lib/commands.js               definicje i obsługa komend slash
     lib/moderation.js             wspólny przebieg każdej kary, uprawnienia (hasModAccess/roleHasAccess)
@@ -180,15 +184,13 @@ supabase/
     lib/gateway.js                krótkie sesje gateway: status online, opisy, reakcje 🫓 na żywo
     lib/cron.js                   rejestracja komend, wygasanie, reakcje 🫓 (zapas)
     lib/panel.js                  API panelu
-    lib/panelAssets.js            WYGENEROWANE z panel/public/* — panel hostowany przez funkcję Edge
     lib/store.js                  zapytania SQL
     lib/configSchema.js           walidacja konfiguracji z panelu (w tym uprawnienia per komenda)
     lib/embeds.js, defaults.js    wygląd i domyślne ustawienia
 panel/
-  build-assets.mjs                generator lib/panelAssets.js z panel/public/*
   server.js                       opcjonalny lokalny wrapper (statyka + przezroczysty proxy do Supabase)
-  public/                         frontend panelu (źródło prawdy — edytuj tutaj, potem `npm run build:panel`)
+  public/                         frontend panelu — publikowany na GitHub Pages (.github/workflows/panel-pages.yml)
 ```
 
-Wdrożenie zmian: `supabase functions deploy hopkostki-bot --no-verify-jwt` (Supabase CLI) albo przez MCP —
-pamiętaj o `npm run build:panel` przed wdrożeniem, jeśli zmieniałeś coś w `panel/public/`.
+Wdrożenie zmian w bocie: `supabase functions deploy hopkostki-bot --no-verify-jwt` (Supabase CLI) albo przez
+MCP. Zmiany w `panel/public/` trafiają na GitHub Pages same po wypchnięciu na `main`.

@@ -1,4 +1,4 @@
-// API panelu konfiguracyjnego. Lokalny panel (http://localhost:3000) przekazuje tu żądania
+// API panelu konfiguracyjnego. Strona panelu (GitHub Pages albo lokalny wrapper) wysyła tu żądania
 // z nagłówkiem x-panel-password — samo API działa na Supabase razem z botem.
 
 import { DEFAULT_CONFIG } from './defaults.js';
