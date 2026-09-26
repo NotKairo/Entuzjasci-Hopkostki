@@ -26,26 +26,36 @@ const TICKET_VARS = ['{uzytkownik}', '{nick}', '{numer}'];
 const BUMP_VARS = ['{uzytkownik}', '{nick}', '{liczba}', '{nastepny}', '{godzina}'];
 const VAR_SETS = { ticket: TICKET_VARS, bump: BUMP_VARS, bumpReminder: ['{uzytkownik}', '</bump:947088344167366698>'] };
 const EMPTY_GUILD = { channels: [], voiceChannels: [], categories: [], roles: [], emojis: [], bot: null };
-const LOG_EVENT_GROUPS = [
-  ['Wiadomości', [['messageDelete', 'Usunięte wiadomości'], ['messageEdit', 'Edytowane wiadomości'], ['messageBulk', 'Zbiorcze usuwanie (np. /clear)']]],
-  ['Członkowie', [['memberJoin', 'Wejścia na serwer'], ['memberLeave', 'Wyjścia z serwera'], ['memberRoles', 'Nadane i zabrane role'], ['memberNick', 'Zmiany pseudonimów']]],
-  ['Moderacja', [['memberBan', 'Bany'], ['memberUnban', 'Odbanowania'], ['memberKick', 'Wyrzucenia'], ['memberTimeout', 'Timeouty']]],
-  [
-    'Serwer',
-    [
-      ['channelCreate', 'Nowe kanały'],
-      ['channelUpdate', 'Zmiany kanałów i ich uprawnień'],
-      ['channelDelete', 'Usunięte kanały'],
-      ['roleCreate', 'Nowe role'],
-      ['roleUpdate', 'Zmiany ról'],
-      ['roleDelete', 'Usunięte role'],
-      ['emojiUpdate', 'Emoji'],
-      ['serverUpdate', 'Ustawienia serwera'],
-      ['inviteCreate', 'Nowe zaproszenia'],
-    ],
+// Grupy jak karty w Carl-bocie; klucz = logs.<klucz>ChannelId (kanał grupy).
+const LOG_EVENT_GROUPS = {
+  messages: [['messageDelete', 'Usunięte wiadomości'], ['messageEdit', 'Edytowane wiadomości'], ['messageBulk', 'Zbiorczo usunięte wiadomości (np. /clear)']],
+  joinLeave: [['memberJoin', 'Wejścia na serwer'], ['memberLeave', 'Wyjścia z serwera']],
+  members: [
+    ['memberRoles', 'Zmiany ról'],
+    ['memberNick', 'Zmiany nazw (pseudonim i nazwa użytkownika)'],
+    ['memberAvatar', 'Zmiany zdjęcia profilowego (stare i nowe)'],
+    ['memberBan', 'Bany'],
+    ['memberUnban', 'Odbanowania'],
+    ['memberTimeout', 'Timeouty'],
+    ['memberTimeoutRemove', 'Zdjęte timeouty'],
+    ['memberKick', 'Wyrzucenia'],
   ],
-  ['Kanały głosowe', [['voiceJoin', 'Wejścia'], ['voiceLeave', 'Wyjścia'], ['voiceMove', 'Przejścia między kanałami']]],
-];
+  server: [
+    ['channelCreate', 'Utworzenie kanału'],
+    ['channelUpdate', 'Zmiany kanału i jego uprawnień'],
+    ['channelDelete', 'Usunięcie kanału'],
+    ['threadCreate', 'Utworzenie wątku'],
+    ['threadUpdate', 'Zmiany wątku'],
+    ['threadDelete', 'Usunięcie wątku'],
+    ['roleCreate', 'Utworzenie roli'],
+    ['roleUpdate', 'Zmiany ról serwera'],
+    ['roleDelete', 'Usunięcie roli'],
+    ['serverUpdate', 'Zmiany ustawień serwera'],
+    ['emojiUpdate', 'Zmiany emoji'],
+    ['inviteCreate', 'Nowe zaproszenia'],
+  ],
+  voice: [['voiceJoin', 'Wejście na kanał głosowy'], ['voiceMove', 'Przejście między kanałami'], ['voiceLeave', 'Wyjście z kanału głosowego']],
+};
 const BUTTON_STYLES = { niebieski: 'Niebieski', szary: 'Szary', zielony: 'Zielony', czerwony: 'Czerwony' };
 const PANEL_PASSWORD_KEY = 'hopkostki-panel-password';
 const SAMPLE = { targetId: '111', target: 'hurownik_og', modId: '222', mod: 'dfgbh65', reason: 'Wielokrotne łamanie zasad' };
@@ -509,7 +519,7 @@ function renderChannelSelects() {
     const kind = select.dataset.channelSelect;
     const list = kind === 'category' ? state.guild.categories : state.guild.channels;
     const emptyLabel =
-      { none: '— wyłączone —', category: 'Bez kategorii', pick: '— wybierz kanał —', inherit: 'Jak kanał główny', bump: 'Kanał, na którym ktoś użył /bump' }[kind] ??
+      { none: '— wyłączone —', category: 'Bez kategorii', pick: '— wybierz kanał —', inherit: 'Jak kanał domyślny', bump: 'Kanał, na którym ktoś użył /bump' }[kind] ??
       'Kanał, na którym użyto komendy';
     let html = `<option value="">${emptyLabel}</option>`;
     html += list
@@ -840,13 +850,13 @@ function renderBotWarnings() {
   const m = state.draft?.members;
   const logs = state.draft?.logs;
   const logOn = (event) => Boolean(logs?.enabled && logs.events[event] && (logs[`${logGroupOf(event)}ChannelId`] || logs.channelId));
-  const joinLogs = logOn('memberJoin') || logOn('memberLeave');
+  const joinLogs = logOn('memberJoin') || logOn('memberLeave') || logOn('memberAvatar') || logOn('memberNick');
   const messageLogs = logOn('messageDelete') || logOn('messageEdit') || logOn('messageBulk');
   const membersOn = m && (m.autoRole.enabled || m.welcome.enabled || m.goodbye.enabled || joinLogs);
   const bump = state.draft?.bump;
   set($('#logs-warning'), [
     logs?.enabled ? missing(bot?.missingLogs, 'część logów') : '',
-    logs?.enabled && !logs.channelId && !['messages', 'members', 'moderation', 'server', 'voice'].some((g) => logs[`${g}ChannelId`]) ? '<strong>Wybierz kanał logów</strong> — bez kanału nic nie będzie zapisywane.' : '',
+    logs?.enabled && !logs.channelId && !Object.keys(LOG_EVENT_GROUPS).some((g) => logs[`${g}ChannelId`]) ? '<strong>Wybierz kanał logów</strong> — bez kanału nic nie będzie zapisywane.' : '',
     messageLogs && bot && !bot.contentIntent ? intent('Message Content', 'Message Content Intent') + ' Bez niej logi wiadomości nie pokażą treści.' : '',
     joinLogs && bot && !bot.membersIntent ? intent('Server Members', 'Server Members Intent') : '',
   ]);
@@ -1006,18 +1016,16 @@ document.addEventListener('input', (event) => {
 });
 
 // ---------- Logi serwera ----------
-const LOG_GROUP_KEYS = { Wiadomości: 'messages', Członkowie: 'members', Moderacja: 'moderation', Serwer: 'server', 'Kanały głosowe': 'voice' };
 function logGroupOf(event) {
-  const group = LOG_EVENT_GROUPS.find(([, events]) => events.some(([key]) => key === event));
-  return LOG_GROUP_KEYS[group?.[0]] ?? 'server';
+  return Object.keys(LOG_EVENT_GROUPS).find((group) => LOG_EVENT_GROUPS[group].some(([key]) => key === event)) ?? 'server';
 }
 
 function renderLogEvents() {
-  $('#log-events').innerHTML = LOG_EVENT_GROUPS.map(
-    ([title, events]) => `<div class="log-group"><h4>${esc(title)}</h4>${events
-      .map(([key, label]) => `<label class="toggle"><input type="checkbox" data-path="logs.events.${key}"><span></span>${esc(label)}</label>`)
-      .join('')}</div>`,
-  ).join('');
+  $$('[data-log-group]').forEach((box) => {
+    box.innerHTML = `<div class="log-list">${LOG_EVENT_GROUPS[box.dataset.logGroup]
+      .map(([key, label]) => `<label class="log-item"><input type="checkbox" data-path="logs.events.${key}"><span>${esc(label)}</span></label>`)
+      .join('')}</div>`;
+  });
 }
 
 // Lista kanałów jako „chipy” (jak role): <div data-channel-picker-slot="ścieżka"></div>
