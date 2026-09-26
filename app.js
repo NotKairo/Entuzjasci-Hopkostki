@@ -20,10 +20,32 @@ const RULE_ACTIONS = { alert: 'Alert', timeout: 'Timeout', kick: 'Kick', ban: 'B
 const PLACEHOLDERS = ['{uzytkownik}', '{nick}', '{moderator}', '{moderatorNick}', '{powod}', '{czas}', '{serwer}', '{sprawa}', '{typ}'];
 const ACTIVITY_LABELS = { custom: 'Własny opis', playing: 'Gra w', listening: 'Słucha', watching: 'Ogląda', competing: 'Rywalizuje w' };
 const PRESENCE_PLACEHOLDERS = ['{czlonkowie}', '{online}', '{serwer}', '{ostrzezenia}', '{sprawy}'];
-const VIEWS = ['pulpit', 'ustawienia', 'uprawnienia', 'czlonkowie', 'tickety', 'glosowe', 'wiadomosci', 'embedy', 'ostrzezenia', 'sprawy', 'bany'];
+const VIEWS = ['pulpit', 'ustawienia', 'uprawnienia', 'czlonkowie', 'logi', 'bump', 'spolecznosc', 'tickety', 'glosowe', 'wiadomosci', 'embedy', 'ostrzezenia', 'sprawy', 'bany'];
 const MEMBER_VARS = ['{uzytkownik}', '{nick}', '{serwer}', '{liczba}'];
 const TICKET_VARS = ['{uzytkownik}', '{nick}', '{numer}'];
-const EMPTY_GUILD = { channels: [], voiceChannels: [], categories: [], roles: [], bot: null };
+const BUMP_VARS = ['{uzytkownik}', '{nick}', '{liczba}', '{nastepny}', '{godzina}'];
+const VAR_SETS = { ticket: TICKET_VARS, bump: BUMP_VARS, bumpReminder: ['{uzytkownik}', '</bump:947088344167366698>'] };
+const EMPTY_GUILD = { channels: [], voiceChannels: [], categories: [], roles: [], emojis: [], bot: null };
+const LOG_EVENT_GROUPS = [
+  ['Wiadomości', [['messageDelete', 'Usunięte wiadomości'], ['messageEdit', 'Edytowane wiadomości'], ['messageBulk', 'Zbiorcze usuwanie (np. /clear)']]],
+  ['Członkowie', [['memberJoin', 'Wejścia na serwer'], ['memberLeave', 'Wyjścia z serwera'], ['memberRoles', 'Nadane i zabrane role'], ['memberNick', 'Zmiany pseudonimów']]],
+  ['Moderacja', [['memberBan', 'Bany'], ['memberUnban', 'Odbanowania'], ['memberKick', 'Wyrzucenia'], ['memberTimeout', 'Timeouty']]],
+  [
+    'Serwer',
+    [
+      ['channelCreate', 'Nowe kanały'],
+      ['channelUpdate', 'Zmiany kanałów i ich uprawnień'],
+      ['channelDelete', 'Usunięte kanały'],
+      ['roleCreate', 'Nowe role'],
+      ['roleUpdate', 'Zmiany ról'],
+      ['roleDelete', 'Usunięte role'],
+      ['emojiUpdate', 'Emoji'],
+      ['serverUpdate', 'Ustawienia serwera'],
+      ['inviteCreate', 'Nowe zaproszenia'],
+    ],
+  ],
+  ['Kanały głosowe', [['voiceJoin', 'Wejścia'], ['voiceLeave', 'Wyjścia'], ['voiceMove', 'Przejścia między kanałami']]],
+];
 const BUTTON_STYLES = { niebieski: 'Niebieski', szary: 'Szary', zielony: 'Zielony', czerwony: 'Czerwony' };
 const PANEL_PASSWORD_KEY = 'hopkostki-panel-password';
 const SAMPLE = { targetId: '111', target: 'hurownik_og', modId: '222', mod: 'dfgbh65', reason: 'Wielokrotne łamanie zasad' };
@@ -264,6 +286,11 @@ function route() {
   if (state.view === 'uprawnienia') renderPermissions();
   if (state.view === 'glosowe') loadVoice();
   if (state.view === 'tickety') loadTickets();
+  if (state.view === 'bump') {
+    renderBumpPreview();
+    loadBump();
+  }
+  if (state.view === 'spolecznosc') loadGiveaways();
   if (state.view === 'wiadomosci') {
     renderMessageEditor();
     loadSentMessages();
@@ -418,12 +445,16 @@ function renderConfigUi() {
   renderPermissions();
   renderGenerators();
   renderTicketTypes();
+  renderLogEvents();
+  renderChannelPickers();
   renderBotWarnings();
   renderEmbedTabs();
   fillInputs();
+  renderEmojiButtons();
+  renderBumpPreview();
   $$('[data-insert-into]').forEach((box) => {
-    const vars = box.dataset.vars === 'ticket' ? TICKET_VARS : MEMBER_VARS;
-    box.innerHTML = vars.map((v) => `<button type="button" class="chip" data-insert="${v}">${v}</button>`).join('');
+    const vars = VAR_SETS[box.dataset.vars] ?? MEMBER_VARS;
+    box.innerHTML = vars.map((v) => `<button type="button" class="chip" data-insert="${esc(v)}">${esc(v.startsWith('</') ? '/bump (klikalne)' : v)}</button>`).join('');
   });
   $('#presence-chips').innerHTML = PRESENCE_PLACEHOLDERS.map((p) => `<button type="button" class="chip" data-presence-placeholder="${p}">${p}</button>`).join('');
   $('#placeholder-chips').innerHTML = PLACEHOLDERS.map((p) => `<button type="button" class="chip" data-placeholder="${p}">${p}</button>`).join('');
@@ -476,7 +507,9 @@ function renderChannelSelects() {
     const current = getPath(state.draft, select.dataset.path) ?? '';
     const kind = select.dataset.channelSelect;
     const list = kind === 'category' ? state.guild.categories : state.guild.channels;
-    const emptyLabel = { none: '— wyłączone —', category: 'Bez kategorii', pick: '— wybierz kanał —' }[kind] ?? 'Kanał, na którym użyto komendy';
+    const emptyLabel =
+      { none: '— wyłączone —', category: 'Bez kategorii', pick: '— wybierz kanał —', inherit: 'Jak kanał główny', bump: 'Kanał, na którym ktoś użył /bump' }[kind] ??
+      'Kanał, na którym użyto komendy';
     let html = `<option value="">${emptyLabel}</option>`;
     html += list
       .map((c) => `<option value="${c.id}">${kind === 'category' ? '' : '#'}${esc(c.name)}${c.category ? ` · ${esc(c.category)}` : ''}</option>`)
@@ -804,7 +837,23 @@ function renderBotWarnings() {
       bot?.intentsError ? ` — tym razem się nie udało (${esc(bot.intentsError)}). Włącz ją ręcznie: Discord Developer Portal → Bot → Privileged Gateway Intents → ${portalName}.` : '.'
     }`;
   const m = state.draft?.members;
-  const membersOn = m && (m.autoRole.enabled || m.welcome.enabled || m.goodbye.enabled || m.logJoins);
+  const logs = state.draft?.logs;
+  const logOn = (event) => Boolean(logs?.enabled && logs.events[event] && (logs[`${logGroupOf(event)}ChannelId`] || logs.channelId));
+  const joinLogs = logOn('memberJoin') || logOn('memberLeave');
+  const messageLogs = logOn('messageDelete') || logOn('messageEdit') || logOn('messageBulk');
+  const membersOn = m && (m.autoRole.enabled || m.welcome.enabled || m.goodbye.enabled || joinLogs);
+  const bump = state.draft?.bump;
+  set($('#logs-warning'), [
+    logs?.enabled ? missing(bot?.missingLogs, 'część logów') : '',
+    logs?.enabled && !logs.channelId && !['messages', 'members', 'moderation', 'server', 'voice'].some((g) => logs[`${g}ChannelId`]) ? '<strong>Wybierz kanał logów</strong> — bez kanału nic nie będzie zapisywane.' : '',
+    messageLogs && bot && !bot.contentIntent ? intent('Message Content', 'Message Content Intent') + ' Bez niej logi wiadomości nie pokażą treści.' : '',
+    joinLogs && bot && !bot.membersIntent ? intent('Server Members', 'Server Members Intent') : '',
+  ]);
+  set($('#bump-warning'), [
+    bump?.enabled ? missing(bot?.missingBump, 'przypominajka') : '',
+    bump?.enabled && bot && !bot.contentIntent ? intent('Message Content', 'Message Content Intent') + ' Bez niej bot nie odróżni udanego bumpa od „poczekaj jeszcze X minut”.' : '',
+  ]);
+  set($('#community-warning'), [missing(bot?.missingCommunity, 'część komend (reakcje, wątki, ankiety, emoji)')]);
   set($('#voice-warning'), [missing(bot?.missingVoice, 'tworzenie kanałów głosowych')]);
   set($('#roles-warning'), [missing(bot?.missingRoles, 'rozdawanie ról')]);
   set($('#members-warning'), [
@@ -933,7 +982,249 @@ document.addEventListener('click', (event) => {
   field.dispatchEvent(new Event('input', { bubbles: true }));
 });
 document.addEventListener('change', (event) => {
-  if (event.target.dataset?.path?.startsWith('members.') || event.target.dataset?.path === 'tickets.enabled') renderBotWarnings();
+  if (/^(members|logs|bump|suggestions)\.|^tickets\.enabled$/.test(event.target.dataset?.path ?? '')) renderBotWarnings();
+});
+document.addEventListener('input', (event) => {
+  const path = event.target.dataset?.path ?? '';
+  if (path.startsWith('bump.')) renderBumpPreview();
+  if (path === 'replyReaction.emoji') renderEmojiButtons();
+});
+
+// ---------- Logi serwera ----------
+const LOG_GROUP_KEYS = { Wiadomości: 'messages', Członkowie: 'members', Moderacja: 'moderation', Serwer: 'server', 'Kanały głosowe': 'voice' };
+function logGroupOf(event) {
+  const group = LOG_EVENT_GROUPS.find(([, events]) => events.some(([key]) => key === event));
+  return LOG_GROUP_KEYS[group?.[0]] ?? 'server';
+}
+
+function renderLogEvents() {
+  $('#log-events').innerHTML = LOG_EVENT_GROUPS.map(
+    ([title, events]) => `<div class="log-group"><h4>${esc(title)}</h4>${events
+      .map(([key, label]) => `<label class="toggle"><input type="checkbox" data-path="logs.events.${key}"><span></span>${esc(label)}</label>`)
+      .join('')}</div>`,
+  ).join('');
+}
+
+// Lista kanałów jako „chipy” (jak role): <div data-channel-picker-slot="ścieżka"></div>
+function channelPicker(path) {
+  const list = getPath(state.draft, path) ?? [];
+  const byId = (id) => state.guild.channels.find((c) => c.id === id) ?? state.guild.voiceChannels.find((c) => c.id === id);
+  const chips = list
+    .map((id) => `<span class="role-chip">#${esc(byId(id)?.name ?? id)}<button type="button" data-chan-remove="${esc(id)}" title="Usuń">×</button></span>`)
+    .join('');
+  const options = [...state.guild.channels, ...state.guild.voiceChannels]
+    .filter((c) => !list.includes(c.id))
+    .map((c) => `<option value="${c.id}">#${esc(c.name)}${c.category ? ` · ${esc(c.category)}` : ''}</option>`);
+  const add = options.length ? `<select class="chip-add" data-chan-add aria-label="Dodaj kanał"><option value="">+ Dodaj kanał</option>${options.join('')}</select>` : '';
+  return `<div class="role-picker" data-chan-picker="${esc(path)}">${chips}${list.length ? '' : '<span class="muted small">brak</span>'}${add}</div>`;
+}
+
+function renderChannelPickers() {
+  $$('[data-channel-picker-slot]').forEach((slot) => (slot.innerHTML = channelPicker(slot.dataset.channelPickerSlot)));
+}
+
+document.addEventListener('change', (event) => {
+  const select = event.target.closest('[data-chan-add]');
+  if (!select?.value) return;
+  event.stopPropagation();
+  const path = select.closest('[data-chan-picker]').dataset.chanPicker;
+  setPath(state.draft, path, [...(getPath(state.draft, path) ?? []), select.value]);
+  renderChannelPickers();
+  markDirty();
+});
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-chan-remove]');
+  if (!button) return;
+  const path = button.closest('[data-chan-picker]').dataset.chanPicker;
+  setPath(state.draft, path, (getPath(state.draft, path) ?? []).filter((id) => id !== button.dataset.chanRemove));
+  renderChannelPickers();
+  markDirty();
+});
+
+// ---------- Bump ----------
+function bumpVars(text) {
+  const next = Date.now() + (state.draft.bump.intervalMinutes || 120) * MINUTE;
+  return String(text ?? '')
+    .replaceAll('{uzytkownik}', `<@${SAMPLE.targetId}>`)
+    .replaceAll('{nick}', SAMPLE.target)
+    .replaceAll('{liczba}', '7')
+    .replaceAll('{nastepny}', ts(next, 'R'))
+    .replaceAll('{godzina}', ts(next, 't'));
+}
+
+function renderBumpPreview() {
+  const box = $('#bump-preview');
+  if (!box || !state.draft) return;
+  const b = state.draft.bump;
+  const time = new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+  const avatar = state.status?.bot?.avatar ? `<img src="${esc(state.status.bot.avatar)}" alt="">` : 'EH';
+  const name = esc(state.status?.bot?.tag?.split('#')[0] ?? 'Entuzjaści Hopkostki');
+  const color = (c) => esc(/^#[0-9a-f]{6}$/i.test(c) ? c : '#5865F2');
+  const message = ({ reply, content, embed }) => `<div class="discord"><div class="msg">
+      <div class="msg-avatar">${avatar}</div>
+      <div>
+        ${reply ? `<div class="msg-reply">↱ <strong>DISBOARD</strong> — ${esc(SAMPLE.target)} użył(a) /bump</div>` : ''}
+        <div class="msg-head"><span class="msg-name">${name}</span><span class="msg-app">APP</span><span class="msg-time">Dzisiaj o ${time}</span></div>
+        ${content ? `<div>${md(content)}</div>` : ''}
+        <div class="embed" style="border-left-color:${color(embed.color)}"><div>
+          ${embed.title ? `<div class="embed-title">${md(embed.title)}</div>` : ''}
+          <div class="embed-desc">${md(embed.description)}</div>
+        </div></div>
+      </div>
+    </div></div>`;
+  const parts = [];
+  if (b.thanks.enabled) {
+    parts.push('<div class="preview-label">Po udanym /bump</div>');
+    parts.push(message({ reply: b.thanks.reply, embed: { color: b.thanks.color, title: bumpVars(b.thanks.title), description: bumpVars(b.thanks.message) } }));
+  }
+  parts.push(`<div class="preview-label">Po ${esc(b.intervalMinutes || 120)} minutach</div>`);
+  parts.push(
+    message({
+      reply: b.reminder.reply && !b.channelId,
+      content: b.roleIds.map((id) => `<@&${id}>`).join(' '),
+      embed: { color: b.reminder.color, title: b.reminder.title, description: bumpVars(b.reminder.message) },
+    }),
+  );
+  box.innerHTML = parts.join('');
+}
+
+async function loadBump() {
+  try {
+    const { last, ranking, month } = await api('/bump');
+    $('#bump-last').innerHTML = last?.at
+      ? `Ostatni bump: <strong>${esc(relTime(last.at))}</strong> (ID osoby ${esc(last.userId)}). ${
+          last.remindAt > Date.now() ? `Przypomnienie ${esc(relTime(last.remindAt))}.` : last.reminded ? 'Przypomnienie wysłane — można bumpować.' : 'Można bumpować.'
+        }`
+      : 'Bot nie zapisał jeszcze żadnego bumpa.';
+    const monthly = new Map(month.map((r) => [r.userId, r.count]));
+    $('#bump-ranking').innerHTML = ranking.length
+      ? `<thead><tr><th>#</th><th>Osoba</th><th>Bumpy</th><th>30 dni</th></tr></thead><tbody>${ranking
+          .map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.userId)}<span class="note">ostatni ${esc(relTime(r.lastAt))}</span></td><td><strong>${r.count}</strong></td><td>${monthly.get(r.userId) ?? 0}</td></tr>`)
+          .join('')}</tbody>`
+      : '<tr><td class="empty">Brak bumpów.</td></tr>';
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+$('#bump-refresh').addEventListener('click', loadBump);
+
+// ---------- Konkursy ----------
+async function loadGiveaways() {
+  try {
+    const { giveaways } = await api('/giveaways');
+    const channelName = (id) => state.guild.channels.find((c) => c.id === id)?.name ?? id;
+    $('#giveaways-table').innerHTML = giveaways.length
+      ? `<thead><tr><th>#</th><th>Nagroda</th><th>Kanał</th><th>Uczestnicy</th><th>Koniec</th><th></th></tr></thead><tbody>${giveaways
+          .map(
+            (g) => `<tr>
+              <td>${g.id}</td>
+              <td><strong>${esc(g.prize)}</strong>${g.ended && g.winnerIds.length ? `<span class="note">Zwycięzcy (ID): ${esc(g.winnerIds.join(', '))}</span>` : ''}</td>
+              <td>#${esc(channelName(g.channelId))}</td>
+              <td>${g.entrants.length}</td>
+              <td>${g.ended ? 'zakończony' : esc(relTime(g.endsAt))}</td>
+              <td>${g.ended ? '' : `<button type="button" class="btn ghost small" data-giveaway-end="${g.id}">Zakończ teraz</button>`}</td>
+            </tr>`,
+          )
+          .join('')}</tbody>`
+      : '<tr><td class="empty">Nie było jeszcze konkursów — uruchom je komendą /konkurs start.</td></tr>';
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+$('#giveaways-refresh').addEventListener('click', loadGiveaways);
+$('#giveaways-table').addEventListener('click', async (event) => {
+  const id = event.target.closest('[data-giveaway-end]')?.dataset.giveawayEnd;
+  if (!id || !confirm('Zakończyć konkurs teraz i wylosować zwycięzców?')) return;
+  try {
+    await api(`/giveaways/${id}/end`, { method: 'POST' });
+    toast('Konkurs zakończony');
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+  loadGiveaways();
+});
+
+// ---------- Wybór emoji (emoji serwera albo zwykłe) ----------
+const CUSTOM_EMOJI = /^<(a?):(\w+):(\d+)>$/;
+function emojiHtml(value) {
+  const custom = CUSTOM_EMOJI.exec(value ?? '');
+  if (custom) return `<img class="emoji" alt=":${esc(custom[2])}:" src="https://cdn.discordapp.com/emojis/${custom[3]}.${custom[1] ? 'gif' : 'png'}?size=48">`;
+  return value ? `<span class="emoji-text">${esc(value)}</span>` : '';
+}
+
+let emojiTarget = null;
+function openEmojiPicker(anchor, current, onPick) {
+  closeEmojiPicker();
+  emojiTarget = onPick;
+  const pop = document.createElement('div');
+  pop.id = 'emoji-pop';
+  pop.className = 'emoji-pop';
+  const emojis = state.guild.emojis ?? [];
+  pop.innerHTML = `
+    <div class="emoji-pop-head"><strong>Emoji serwera</strong><button type="button" class="btn ghost small" data-emoji-close>Zamknij</button></div>
+    <div class="emoji-grid">${
+      emojis.length
+        ? emojis.map((e) => `<button type="button" data-emoji-pick="${esc(e.tag)}" title=":${esc(e.name)}:" class="${e.tag === current ? 'active' : ''}"><img src="${esc(e.url)}" alt=":${esc(e.name)}:" loading="lazy"></button>`).join('')
+        : '<p class="muted small">Serwer nie ma własnych emoji.</p>'
+    }</div>
+    <label class="field"><span>Albo wpisz zwykłe emoji (np. 🎮)</span>
+      <div class="emoji-own"><input type="text" maxlength="32" data-emoji-own value="${CUSTOM_EMOJI.test(current ?? '') ? '' : esc(current ?? '')}"><button type="button" class="btn small" data-emoji-own-ok>Ustaw</button></div>
+    </label>
+    <button type="button" class="btn ghost small" data-emoji-pick="">Bez emoji</button>`;
+  document.body.append(pop);
+  // Gdy obrazek się nie wczyta, zostaje nazwa emoji.
+  $$('img', pop).forEach((img) =>
+    img.addEventListener('error', () => img.replaceWith(Object.assign(document.createElement('span'), { className: 'emoji-fallback', textContent: img.alt }))),
+  );
+  const rect = anchor.getBoundingClientRect();
+  const width = Math.min(320, window.innerWidth - 32);
+  pop.style.width = `${width}px`;
+  pop.style.left = `${Math.max(16, Math.min(rect.left + window.scrollX, window.scrollX + window.innerWidth - width - 16))}px`;
+  pop.style.top = `${rect.bottom + window.scrollY + 6}px`;
+}
+function closeEmojiPicker() {
+  $('#emoji-pop')?.remove();
+  emojiTarget = null;
+}
+document.addEventListener('click', (event) => {
+  const pop = event.target.closest('#emoji-pop');
+  if (!pop) {
+    if (!event.target.closest('[data-emoji-open]')) closeEmojiPicker();
+    return;
+  }
+  if (event.target.closest('[data-emoji-close]')) return closeEmojiPicker();
+  const pick = event.target.closest('[data-emoji-pick]');
+  const own = event.target.closest('[data-emoji-own-ok]');
+  if (!pick && !own) return;
+  const value = pick ? pick.dataset.emojiPick : $('[data-emoji-own]', pop).value.trim();
+  const done = emojiTarget;
+  closeEmojiPicker();
+  done?.(value);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeEmojiPicker();
+  if (event.key === 'Enter' && event.target.matches('[data-emoji-own]')) {
+    event.preventDefault();
+    $('[data-emoji-own-ok]')?.click();
+  }
+});
+
+// Przyciski wyboru emoji przy polach konfiguracji: <button data-emoji-open data-emoji-path="ścieżka">
+function renderEmojiButtons() {
+  $$('[data-emoji-path]').forEach((button) => {
+    const value = getPath(state.draft, button.dataset.emojiPath);
+    button.innerHTML = value ? `${emojiHtml(value)} Zmień` : 'Wybierz emoji';
+  });
+}
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-emoji-open][data-emoji-path]');
+  if (!button) return;
+  openEmojiPicker(button, getPath(state.draft, button.dataset.emojiPath), (value) => {
+    const field = $(`[data-path="${button.dataset.emojiPath}"]`);
+    field.value = value;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    renderEmojiButtons();
+  });
 });
 
 // ---------- Tickety ----------
@@ -1091,7 +1382,10 @@ function renderMessageItems() {
     .map(
       (item, i) => `<tr data-item="${i}">
         <td><select data-item-field="roleId" aria-label="Rola">${roleSelect(item.roleId)}</select></td>
-        <td class="grow"><input type="text" maxlength="80" value="${esc(item.label)}" data-item-field="label" placeholder="${esc(roleById(item.roleId)?.name ?? 'Nazwa roli')}" aria-label="Napis"></td>
+        <td class="grow"><div class="emoji-own">
+          <button type="button" class="btn ghost small emoji-btn" data-emoji-open data-emoji-item="${i}" title="Emoji przy roli (emoji serwera albo zwykłe)">${item.emoji ? emojiHtml(item.emoji) : 'Emoji'}</button>
+          <input type="text" maxlength="80" value="${esc(item.label)}" data-item-field="label" placeholder="${esc(roleById(item.roleId)?.name ?? 'Nazwa roli')}" aria-label="Napis">
+        </div></td>
         <td>${
           mode === 'buttons'
             ? `<select data-item-field="style" aria-label="Kolor przycisku">${Object.entries(BUTTON_STYLES).map(([v, l]) => `<option value="${v}" ${v === item.style ? 'selected' : ''}>${l}</option>`).join('')}</select>`
@@ -1102,7 +1396,7 @@ function renderMessageItems() {
     )
     .join('');
   const third = mode === 'buttons' ? 'Kolor' : 'Opis na liście';
-  $('#msg-items').innerHTML = `<thead><tr><th>Rola</th><th>Napis (puste = nazwa roli)</th><th>${third}</th><th></th></tr></thead>
+  $('#msg-items').innerHTML = `<thead><tr><th>Rola</th><th>Emoji i napis</th><th>${third}</th><th></th></tr></thead>
     <tbody>${rows || '<tr><td colspan="4" class="empty">Dodaj role, które można będzie sobie wybrać.</td></tr>'}</tbody>`;
   $('#msg-add-item').disabled = items.length >= 25;
 }
@@ -1146,6 +1440,16 @@ $('#msg-embed-color-picker').addEventListener('input', (event) => {
   $('#msg-embed-color').dispatchEvent(new Event('input', { bubbles: true }));
 });
 $('#msg-items').addEventListener('click', (event) => {
+  const emojiButton = event.target.closest('[data-emoji-item]');
+  if (emojiButton) {
+    const item = state.msg.data.roles.items[Number(emojiButton.dataset.emojiItem)];
+    openEmojiPicker(emojiButton, item.emoji, (value) => {
+      item.emoji = value;
+      renderMessageItems();
+      renderMessagePreview();
+    });
+    return;
+  }
   const row = event.target.closest('[data-item-del]') && event.target.closest('[data-item]');
   if (!row) return;
   state.msg.data.roles.items.splice(Number(row.dataset.item), 1);
@@ -1155,7 +1459,7 @@ $('#msg-items').addEventListener('click', (event) => {
 $('#msg-add-item').addEventListener('click', () => {
   const used = new Set(state.msg.data.roles.items.map((i) => i.roleId));
   const next = state.guild.roles.find((r) => r.assignable && !used.has(r.id));
-  state.msg.data.roles.items.push({ roleId: next?.id ?? '', label: '', description: '', style: 'niebieski' });
+  state.msg.data.roles.items.push({ roleId: next?.id ?? '', label: '', description: '', style: 'niebieski', emoji: '' });
   renderMessageItems();
   renderMessagePreview();
 });
@@ -1202,10 +1506,10 @@ function renderMessagePreview() {
   const label = (item) => item.label || roleById(item.roleId)?.name || 'Rola';
   let components = '';
   if (d.roles.mode === 'buttons' && d.roles.items.length) {
-    components = `<div class="dc-buttons">${d.roles.items.map((i) => `<span class="dc-button ${esc(i.style)}">${esc(label(i))}</span>`).join('')}</div>`;
+    components = `<div class="dc-buttons">${d.roles.items.map((i) => `<span class="dc-button ${esc(i.style)}">${emojiHtml(i.emoji)}${esc(label(i))}</span>`).join('')}</div>`;
   } else if (d.roles.mode === 'select' && d.roles.items.length) {
     components = `<div class="dc-select"><span>${esc(d.roles.placeholder || 'Wybierz role')}</span><i></i></div>
-      <div class="dc-options">${d.roles.items.map((i) => `<div><b>${esc(label(i))}</b>${i.description ? `<small>${esc(i.description)}</small>` : ''}</div>`).join('')}</div>`;
+      <div class="dc-options">${d.roles.items.map((i) => `<div>${i.emoji ? `<span class="dc-option-emoji">${emojiHtml(i.emoji)}</span>` : ''}<span><b>${esc(label(i))}</b>${i.description ? `<small>${esc(i.description)}</small>` : ''}</span></div>`).join('')}</div>`;
   }
   const empty = !d.content && !hasEmbed;
   $('#msg-preview').innerHTML = `<div class="msg">
@@ -1377,6 +1681,8 @@ function md(text) {
       const html = esc(line)
         .replace(/&lt;(a?):(\w+):(\d+)&gt;/g, (_, a, name, id) => `<img class="emoji" alt=":${name}:" src="https://cdn.discordapp.com/emojis/${id}.${a ? 'gif' : 'webp'}?size=48">`)
         .replace(/&lt;@!?(\d+)&gt;/g, (_, id) => `<span class="mention">@${esc(names[id] ?? 'użytkownik')}</span>`)
+        .replace(/&lt;@&amp;(\d+)&gt;/g, (_, id) => `<span class="mention">@${esc(roleById(id)?.name ?? 'rola')}</span>`)
+        .replace(/&lt;\/([\w -]+):\d+&gt;/g, (_, name) => `<span class="mention">/${esc(name)}</span>`)
         .replace(/&lt;t:(\d+):([a-zA-Z])&gt;/g, (_, ts, style) => `<span class="ts">${style === 'R' ? relTime(ts * 1000) : fullDate(ts * 1000)}</span>`)
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
@@ -1398,7 +1704,7 @@ function previewData(action) {
   const style = cfg.actions[action];
   const now = Date.now();
   const server = state.status?.guild?.name ?? 'Entuzjaści Hopkostki';
-  const brand = 'Entuzjaści Hopkostki 🫓';
+  const brand = 'Entuzjaści Hopkostki';
   const ctx = { duration: null, expiresAt: null, warn: null };
   if (action === 'ban') Object.assign(ctx, { duration: '14 dni', expiresAt: now + 14 * DAY });
   if (action === 'timeout') Object.assign(ctx, { duration: '2 godziny', expiresAt: now + 2 * HOUR });

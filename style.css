@@ -274,7 +274,7 @@ textarea { resize: vertical; }
 
 /* ---------- Telefon / wąskie okno ---------- */
 @media (max-width: 860px) {
-  .layout { grid-template-columns: 1fr; }
+  .layout { grid-template-columns: minmax(0, 1fr); }
   .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; padding: .6rem; }
   .brand { border: none; padding: 0; flex: 1; }
   nav { flex-direction: row; overflow-x: auto; flex-basis: 100%; order: 3; }
@@ -366,7 +366,8 @@ button.side-link { background: none; border: none; font: inherit; text-align: le
 [hidden] { display: none !important; }
 #view-wiadomosci .grid.editor { grid-template-columns: minmax(440px, 1.35fr) minmax(300px, 1fr); }
 #msg-items td:first-child { min-width: 140px; }
-#msg-items td:nth-child(3) { min-width: 120px; }
+#msg-items td:nth-child(2) { min-width: 150px; }
+#msg-items td:nth-child(3) { min-width: 100px; }
 @media (max-width: 1100px) { #view-wiadomosci .grid.editor { grid-template-columns: 1fr; } }
 
 /* ---------- Role jako chipy ---------- */
@@ -391,3 +392,30 @@ select.chip-add:hover { border-color: var(--blurple); }
 .link-btn { background: none; border: none; color: #00a8fc; font: inherit; cursor: pointer; padding: 0; text-decoration: underline; }
 .ttype { border: 1px solid var(--line); border-radius: 8px; padding: .5rem; margin-bottom: .5rem; }
 .ttype-row { display: grid; grid-template-columns: 1fr 130px auto; gap: .4rem; margin-bottom: .4rem; }
+
+/* Wybór emoji (emoji serwera albo zwykłe) */
+.emoji-pop {
+  position: absolute; z-index: 60; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: .8rem; box-shadow: 0 12px 32px rgba(0, 0, 0, .45); display: grid; gap: .6rem;
+}
+.emoji-pop-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); gap: .3rem; max-height: 220px; overflow-y: auto; }
+.emoji-grid button { background: transparent; border: 1px solid transparent; border-radius: 6px; padding: .25rem; cursor: pointer; display: grid; place-items: center; }
+.emoji-grid button:hover, .emoji-grid button.active { background: var(--bg); border-color: var(--blurple); }
+.emoji-grid img { width: 28px; height: 28px; object-fit: contain; }
+.emoji-own { display: flex; gap: .4rem; align-items: center; }
+.emoji-own input { flex: 1; min-width: 0; }
+.emoji-btn { display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; }
+.emoji-btn img.emoji, .dc-button img.emoji, .dc-options img.emoji { width: 1.25em; height: 1.25em; vertical-align: -.25em; object-fit: contain; }
+.emoji-text { font-size: 1.1em; line-height: 1; }
+.dc-button { display: inline-flex; align-items: center; gap: .35rem; }
+.dc-options div { display: flex; gap: .55rem; align-items: center; }
+.dc-options div span { display: grid; }
+.dc-option-emoji { font-size: 1.2rem; }
+/* Logi i społeczność */
+.log-group { margin-bottom: .8rem; }
+.log-group h4 { margin: .2rem 0 .4rem; font-size: .85rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.command-list { margin: 0; padding-left: 1.1rem; display: grid; gap: .35rem; font-size: .9rem; }
+#bump-preview .discord { margin-bottom: .6rem; }
+.emoji-fallback { font-size: .7rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+#msg-items .emoji-own input { width: 100%; }
