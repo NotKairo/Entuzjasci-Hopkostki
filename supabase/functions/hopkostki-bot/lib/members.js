@@ -5,7 +5,7 @@
 import { getApp, getGuildContext, isOurGuild } from './moderation.js';
 import { avatarUrl } from './rest.js';
 import { COLORS, colorInt, escapeMarkdown, fillTemplate } from './embeds.js';
-import { joinLogsOn, logMemberJoin, logMemberLeave, messageLogsOn } from './logs.js';
+import { joinLogsOn, logMemberJoin, logMemberLeave, messageLogsOn, profileLogsOn } from './logs.js';
 
 const FLAG = { MEMBERS: 1 << 14, MEMBERS_LIMITED: 1 << 15, CONTENT: 1 << 18, CONTENT_LIMITED: 1 << 19 };
 const RECENT_JOIN_MS = 30 * 60_000;
@@ -17,7 +17,7 @@ export const contentIntentOn = (app) => Boolean((app?.flags ?? 0) & (FLAG.CONTEN
 
 export function membersFeaturesOn(config) {
   const m = config.members;
-  return m.autoRole.enabled || m.welcome.enabled || m.goodbye.enabled || joinLogsOn(config);
+  return m.autoRole.enabled || m.welcome.enabled || m.goodbye.enabled || joinLogsOn(config) || profileLogsOn(config);
 }
 
 // Treść cudzych wiadomości: zapis ticketów, logi usuniętych/edytowanych wiadomości, embed DISBOARD przy bumpie.

@@ -52,7 +52,7 @@ test('powitanie, pożegnanie i log wejść z ostrzeżeniem o młodym koncie', as
     welcome: { enabled: true, channelId: WELCOME, title: 'Hej {nick}!', message: 'Witaj {uzytkownik} na {serwer}, jesteś {liczba}.' },
     goodbye: { enabled: true, channelId: WELCOME, message: '{nick} wyszedł, zostało {liczba}.' },
   });
-  await s.store.updateConfig({ logs: { enabled: true, membersChannelId: LOGS } });
+  await s.store.updateConfig({ logs: { enabled: true, joinLeaveChannelId: LOGS } });
   const fresh = String((BigInt(Date.now() - 1420070400000) << 22n));
   await onMemberJoin(s.bot, joined(fresh, { user: { id: fresh, username: 'nowy' } }));
   const [welcome, bye] = [s.discord.state.channels.get(WELCOME)[0]];

@@ -1,24 +1,32 @@
-// Logi serwera w stylu Carl-bota: usunięte/edytowane wiadomości, wejścia i wyjścia, role, pseudonimy,
-// bany, kicki, timeouty, kanały, role serwera, emoji, zaproszenia i kanały głosowe.
+// Logi serwera w układzie Carl-bota (kanał domyślny + osobne kanały dla członków, serwera, głosowych,
+// wiadomości i wejść/wyjść): usunięte/edytowane wiadomości, wejścia i wyjścia, role, nazwy, zdjęcia
+// profilowe, bany, timeouty, kanały, wątki, role serwera, emoji i kanały głosowe.
 //
 // Źródła zdarzeń (gateway.js):
 // - wiadomości: MESSAGE_CREATE/UPDATE/DELETE(_BULK) + bot.message_cache (Discord nie podaje starej treści),
 // - wejścia/wyjścia: GUILD_MEMBER_ADD/REMOVE (intencja „Server Members”),
+// - zdjęcie profilowe i nazwa użytkownika: GUILD_MEMBER_UPDATE + bot.member_profiles (poprzednia wersja),
 // - głosowe: VOICE_STATE_UPDATE + bot.voice_states (poprzedni kanał),
 // - reszta: GUILD_AUDIT_LOG_ENTRY_CREATE — dziennik zdarzeń mówi też, KTO coś zrobił i ze zmianami przed/po.
 
-import { getApp, isOurGuild } from './moderation.js';
+import { getApp, isOurGuild, resolveGuildId } from './moderation.js';
 import { avatarUrl, messageUrl } from './rest.js';
 import { COLORS, escapeMarkdown } from './embeds.js';
 import { discordTimestamp } from './duration.js';
 
-const GROUPS = {
+// Grupa = karta w panelu i własny kanał logów (logs.<grupa>ChannelId, puste = kanał domyślny).
+export const GROUPS = {
   messages: ['messageDelete', 'messageEdit', 'messageBulk'],
-  members: ['memberJoin', 'memberLeave', 'memberRoles', 'memberNick'],
-  moderation: ['memberBan', 'memberUnban', 'memberKick', 'memberTimeout'],
-  server: ['channelCreate', 'channelUpdate', 'channelDelete', 'roleCreate', 'roleUpdate', 'roleDelete', 'emojiUpdate', 'serverUpdate', 'inviteCreate'],
-  voice: ['voiceJoin', 'voiceLeave', 'voiceMove'],
+  joinLeave: ['memberJoin', 'memberLeave'],
+  members: ['memberRoles', 'memberNick', 'memberAvatar', 'memberBan', 'memberUnban', 'memberTimeout', 'memberTimeoutRemove', 'memberKick'],
+  server: [
+    'channelCreate', 'channelUpdate', 'channelDelete', 'threadCreate', 'threadUpdate', 'threadDelete',
+    'roleCreate', 'roleUpdate', 'roleDelete', 'serverUpdate', 'emojiUpdate', 'inviteCreate',
+  ],
+  voice: ['voiceJoin', 'voiceMove', 'voiceLeave'],
 };
+// Zdarzenia z dziennika zdarzeń Discorda (reszta ma własne źródła).
+const AUDIT_EVENTS = [...GROUPS.members.filter((e) => e !== 'memberAvatar'), ...GROUPS.server];
 const GROUP_OF = Object.fromEntries(Object.entries(GROUPS).flatMap(([group, events]) => events.map((e) => [e, group])));
 export const LOG_EVENTS = Object.keys(GROUP_OF);
 
@@ -36,8 +44,10 @@ export function logChannelFor(logs, event) {
 }
 
 export const messageLogsOn = (config) => GROUPS.messages.some((e) => logChannelFor(config.logs, e));
-export const auditLogsOn = (config) => [...GROUPS.members.slice(2), ...GROUPS.moderation, ...GROUPS.server].some((e) => logChannelFor(config.logs, e));
+export const auditLogsOn = (config) => AUDIT_EVENTS.some((e) => logChannelFor(config.logs, e));
 export const joinLogsOn = (config) => Boolean(logChannelFor(config.logs, 'memberJoin') || logChannelFor(config.logs, 'memberLeave'));
+// Zmiany zdjęć profilowych i nazw użytkowników — też przez GUILD_MEMBER_UPDATE (intencja „Server Members”).
+export const profileLogsOn = (config) => Boolean(logChannelFor(config.logs, 'memberAvatar') || logChannelFor(config.logs, 'memberNick'));
 
 async function send(bot, config, event, payload, options) {
   const channelId = logChannelFor(config.logs, event);
@@ -223,6 +233,123 @@ export async function logMemberLeave(bot, data) {
   });
 }
 
+// ---------- Zdjęcie profilowe i nazwa użytkownika ----------
+
+const animated = (hash) => String(hash ?? '').startsWith('a_');
+// Zdjęcie widoczne na serwerze: własne serwerowe (jeśli jest), inaczej zwykłe, inaczej domyślne Discorda.
+export function profileAvatarUrl(guildId, userId, profile, size = 512) {
+  if (profile.guildAvatar) {
+    return `https://cdn.discordapp.com/guilds/${guildId}/users/${userId}/avatars/${profile.guildAvatar}.${animated(profile.guildAvatar) ? 'gif' : 'png'}?size=${size}`;
+  }
+  if (profile.avatar) return `https://cdn.discordapp.com/avatars/${userId}/${profile.avatar}.${animated(profile.avatar) ? 'gif' : 'png'}?size=${size}`;
+  return avatarUrl({ id: userId });
+}
+
+// Obrazek pobieramy od razu i dołączamy do logu — stary link z CDN Discorda po zmianie może przestać działać.
+async function download(bot, url) {
+  try {
+    const res = await (bot.fetch ?? fetch)(url);
+    if (!res.ok) return null;
+    const type = (res.headers.get('content-type') ?? 'image/png').split(';')[0];
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    return bytes.length && bytes.length < 8 * 1024 * 1024 ? { bytes, type } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function logAvatarChange(bot, config, user, before, after) {
+  const [old, fresh] = await Promise.all([download(bot, before), download(bot, after)]);
+  const files = [];
+  const attach = (image, name, url) => {
+    if (!image) return url;
+    const file = `${name}.${image.type.includes('gif') ? 'gif' : 'png'}`;
+    files.push({ name: file, content: image.bytes, type: image.type });
+    return `attachment://${file}`;
+  };
+  const beforeRef = attach(old, 'przed', before);
+  const afterRef = attach(fresh, 'po', after);
+  // Dwa embedy z tym samym linkiem Discord pokazuje jako jedną galerię: najpierw stare, obok nowe zdjęcie.
+  const link = `https://discord.com/users/${user.id}`;
+  await send(
+    bot,
+    config,
+    'memberAvatar',
+    {
+      embeds: [
+        {
+          url: link,
+          color: COLOR.blue,
+          author: authorOf(user),
+          description: `**<@${user.id}> zmienił(a) zdjęcie profilowe**\nPierwsze zdjęcie: **przed**, drugie: **po** zmianie.`,
+          image: { url: beforeRef },
+          footer: { text: `ID: ${user.id}` },
+          timestamp: now(),
+        },
+        { url: link, image: { url: afterRef } },
+      ],
+    },
+    files.length ? { files } : undefined,
+  );
+}
+
+export async function onMemberUpdateLog(bot, member) {
+  const user = member?.user;
+  if (!user?.id) return;
+  const config = await bot.store.getConfig();
+  if (!profileLogsOn(config) || (user.bot && config.logs.ignoreBots) || !(await isOurGuild(bot, member.guild_id))) return;
+  const next = { avatar: user.avatar ?? null, guildAvatar: member.avatar ?? null, username: user.username ?? null, globalName: user.global_name ?? null };
+  const prev = await bot.store.swapMemberProfile(user.id, next);
+  if (!prev) return; // pierwszy raz widzimy tę osobę — tylko zapamiętujemy
+
+  const before = profileAvatarUrl(member.guild_id, user.id, prev);
+  const after = profileAvatarUrl(member.guild_id, user.id, next);
+  if (before !== after && logChannelFor(config.logs, 'memberAvatar')) await logAvatarChange(bot, config, user, before, after);
+
+  if ((prev.username !== next.username || prev.globalName !== next.globalName) && logChannelFor(config.logs, 'memberNick')) {
+    const label = (p) => `${p.globalName ? `${escapeMarkdown(p.globalName)} ` : ''}(\`${p.username ?? '?'}\`)`;
+    await send(bot, config, 'memberNick', {
+      embeds: [
+        {
+          color: COLOR.blue,
+          author: authorOf(user),
+          description: `**<@${user.id}> zmienił(a) nazwę użytkownika**`,
+          fields: [
+            { name: 'Przed', value: clip(label(prev), 1024), inline: true },
+            { name: 'Po', value: clip(label(next), 1024), inline: true },
+          ],
+          footer: { text: `ID: ${user.id}` },
+          timestamp: now(),
+        },
+      ],
+    });
+  }
+}
+
+// Zapas (cron co 6 h): zapamiętuje zdjęcia i nazwy wszystkich osób, żeby pierwsza zmiana też miała „przed”.
+export async function seedMemberProfiles(bot) {
+  const config = await bot.store.getConfig();
+  if (!profileLogsOn(config)) return 0;
+  const last = await bot.store.getState('profiles_seed');
+  if (last && Date.now() - last < 6 * 60 * 60_000) return 0;
+  await bot.store.setState('profiles_seed', Date.now());
+  const app = await getApp(bot);
+  if (!((app?.flags ?? 0) & ((1 << 14) | (1 << 15)))) return 0;
+  const guildId = await resolveGuildId(bot);
+  let after = '0';
+  let seeded = 0;
+  for (let page = 0; page < 10; page += 1) {
+    const list = await bot.discord.get(`/guilds/${guildId}/members`, { query: { limit: 1000, after } });
+    if (!list?.length) break;
+    seeded += await bot.store.seedMemberProfiles(
+      list.map((m) => ({ userId: m.user.id, avatar: m.user.avatar ?? null, guildAvatar: m.avatar ?? null, username: m.user.username ?? null, globalName: m.user.global_name ?? null })),
+    );
+    after = list.at(-1).user.id;
+    if (list.length < 1000) break;
+  }
+  return seeded;
+}
+
 // ---------- Kanały głosowe ----------
 
 export async function logVoiceChange(bot, state, previousChannelId) {
@@ -268,6 +395,9 @@ const AUDIT = {
   EMOJI_CREATE: 60,
   EMOJI_UPDATE: 61,
   EMOJI_DELETE: 62,
+  THREAD_CREATE: 110,
+  THREAD_UPDATE: 111,
+  THREAD_DELETE: 112,
 };
 
 const PERMISSION_NAMES = [
@@ -290,7 +420,7 @@ export function permissionDiff(before, after) {
   return { added: names(b & ~a), removed: names(a & ~b) };
 }
 
-const CHANNEL_TYPES = { 0: 'tekstowy', 2: 'głosowy', 4: 'kategoria', 5: 'ogłoszeń', 13: 'scena', 15: 'forum', 16: 'media' };
+const CHANNEL_TYPES = { 0: 'tekstowy', 2: 'głosowy', 4: 'kategoria', 5: 'ogłoszeń', 10: 'wątek ogłoszeń', 11: 'wątek publiczny', 12: 'wątek prywatny', 13: 'scena', 15: 'forum', 16: 'media' };
 const CHANGE_LABELS = {
   name: 'Nazwa',
   topic: 'Temat',
@@ -319,6 +449,10 @@ const CHANGE_LABELS = {
   default_message_notifications: 'Domyślne powiadomienia',
   premium_progress_bar_enabled: 'Pasek boostów',
   type: 'Typ',
+  archived: 'Zarchiwizowany',
+  locked: 'Zablokowany',
+  invitable: 'Każdy może zapraszać',
+  auto_archive_duration: 'Automatyczna archiwizacja',
 };
 
 function formatValue(key, value) {
@@ -329,6 +463,7 @@ function formatValue(key, value) {
   if (key === 'color') return `#${Number(value).toString(16).padStart(6, '0')}`;
   if (key === 'rate_limit_per_user') return Number(value) ? `${value} s` : 'wyłączony';
   if (key === 'type') return CHANNEL_TYPES[value] ?? String(value);
+  if (key === 'auto_archive_duration') return Number(value) >= 1440 ? `${Number(value) / 1440} d` : `${Number(value) / 60} h`;
   if (/_hash$/.test(key)) return 'zmieniona';
   return code(value);
 }
@@ -374,7 +509,7 @@ export async function onAuditLogEntry(bot, entry) {
   // Kary nałożone komendami bota są już w logach moderacji z pełnymi szczegółami.
   const botModeration = byBot && Boolean(config.modLogChannelId);
   // Kanały na żądanie i tickety bot tworzy i zmienia sam — to byłby tylko szum.
-  const botChannel = byBot && type >= AUDIT.CHANNEL_CREATE && type <= AUDIT.OVERWRITE_DELETE;
+  const botChannel = byBot && ((type >= AUDIT.CHANNEL_CREATE && type <= AUDIT.OVERWRITE_DELETE) || (type >= AUDIT.THREAD_CREATE && type <= AUDIT.THREAD_DELETE));
   if (botChannel) return;
 
   if (type === AUDIT.MEMBER_BAN_ADD || type === AUDIT.MEMBER_BAN_REMOVE || type === AUDIT.MEMBER_KICK) {
@@ -411,7 +546,8 @@ export async function onAuditLogEntry(bot, entry) {
         until > Date.now()
           ? `**<@${target}> dostał(a) timeout do ${discordTimestamp(until, 'f')}** (${discordTimestamp(until, 'R')})`
           : `**<@${target}> — zdjęto timeout**`;
-      await send(bot, config, 'memberTimeout', { embeds: [userEmbed(user, until > Date.now() ? COLOR.orange : COLOR.green, text, entry)] });
+      const event = until > Date.now() ? 'memberTimeout' : 'memberTimeoutRemove';
+      await send(bot, config, event, { embeds: [userEmbed(user, until > Date.now() ? COLOR.orange : COLOR.green, text, entry)] });
     }
     return;
   }
@@ -465,6 +601,16 @@ export async function onAuditLogEntry(bot, entry) {
       const verb = type === AUDIT.OVERWRITE_DELETE ? 'Usunięto uprawnienia' : 'Zmieniono uprawnienia';
       return simple('channelUpdate', COLOR.blue, `**${verb} na <#${target}> dla ${who}**`, lines);
     }
+    case AUDIT.THREAD_CREATE: {
+      const kind = CHANNEL_TYPES[changeOf(entry, 'type')?.new_value] ?? 'wątek';
+      return simple('threadCreate', COLOR.green, `**Utworzono wątek (${kind}): <#${target}>** ${code(name())}`);
+    }
+    case AUDIT.THREAD_UPDATE: {
+      const lines = changeLines(entry.changes);
+      return lines.length ? simple('threadUpdate', COLOR.blue, `**Zmieniono wątek <#${target}>**`, lines) : null;
+    }
+    case AUDIT.THREAD_DELETE:
+      return simple('threadDelete', COLOR.red, `**Usunięto wątek ${code(name())}**`);
     case AUDIT.ROLE_CREATE:
       return simple('roleCreate', COLOR.green, `**Utworzono rolę <@&${target}>** ${code(name())}`);
     case AUDIT.ROLE_UPDATE: {

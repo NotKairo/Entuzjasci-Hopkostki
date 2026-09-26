@@ -245,26 +245,44 @@
       <section id="view-logi" class="view">
         <header class="view-head">
           <h2>Logi serwera</h2>
-          <p class="muted">Jak w Carl-bocie: usunięte i edytowane wiadomości (z treścią), wejścia i wyjścia, zmiany ról i pseudonimów, bany, kicki, timeouty, kanały, role, emoji i kanały głosowe. Zmiany z dziennika zdarzeń Discorda pokazują też, kto je zrobił.</p>
+          <p class="muted">Jak w Carl-bocie: każda grupa zdarzeń może iść na własny kanał, a puste pole oznacza kanał domyślny. Zmiany z dziennika zdarzeń Discorda pokazują też, kto je zrobił.</p>
         </header>
         <div id="logs-warning" class="banner warn hidden"></div>
         <div class="grid two">
           <div class="card">
-            <h3>Kanały</h3>
+            <h3>Kanały logów</h3>
             <label class="toggle"><input type="checkbox" data-path="logs.enabled"><span></span>Włącz logi serwera</label>
-            <label class="field"><span>Kanał główny (dla wszystkiego, co nie ma własnego)</span><select data-path="logs.channelId" data-channel-select="none"></select></label>
-            <div class="grid two tight">
-              <label class="field"><span>Wiadomości</span><select data-path="logs.messagesChannelId" data-channel-select="inherit"></select></label>
-              <label class="field"><span>Członkowie</span><select data-path="logs.membersChannelId" data-channel-select="inherit"></select></label>
-              <label class="field"><span>Moderacja</span><select data-path="logs.moderationChannelId" data-channel-select="inherit"></select></label>
-              <label class="field"><span>Serwer</span><select data-path="logs.serverChannelId" data-channel-select="inherit"></select></label>
-              <label class="field"><span>Kanały głosowe</span><select data-path="logs.voiceChannelId" data-channel-select="inherit"></select></label>
-            </div>
-            <label class="toggle"><input type="checkbox" data-path="logs.ignoreBots"><span></span>Pomijaj wiadomości i kanały głosowe botów</label>
-            <div class="field"><span>Pomijane kanały (np. spam, boty)</span><div data-channel-picker-slot="logs.ignoredChannelIds"></div></div>
+            <label class="field"><span>Domyślny kanał logów</span><select data-path="logs.channelId" data-channel-select="none"></select></label>
+            <label class="field"><span>Kanał logów członków</span><select data-path="logs.membersChannelId" data-channel-select="inherit"></select></label>
+            <label class="field"><span>Kanał logów serwera</span><select data-path="logs.serverChannelId" data-channel-select="inherit"></select></label>
+            <label class="field"><span>Kanał logów głosowych</span><select data-path="logs.voiceChannelId" data-channel-select="inherit"></select></label>
+            <label class="field"><span>Kanał logów wiadomości</span><select data-path="logs.messagesChannelId" data-channel-select="inherit"></select></label>
+            <label class="field"><span>Kanał wejść i wyjść</span><select data-path="logs.joinLeaveChannelId" data-channel-select="inherit"></select></label>
+            <div class="field"><span>Pomijane kanały</span><div data-channel-picker-slot="logs.ignoredChannelIds"></div></div>
+            <label class="toggle"><input type="checkbox" data-path="logs.ignoreBots"><span></span>Pomijaj boty</label>
             <p class="muted small">Treść usuniętych wiadomości bot pamięta przez 7 dni. Kary nałożone komendami bota są w logach moderacji (Ustawienia), więc tu się nie dublują.</p>
-            <h3>Nowe konta</h3>
-            <p class="muted small">Gdy wejdzie ktoś z kontem młodszym niż wybrany próg (tak często wyglądają multikonta), log wejścia jest żółty i może oznaczyć moderację. Działa przy włączonym logu „Wejścia na serwer”.</p>
+          </div>
+          <div class="card">
+            <h3>Zdarzenia serwera</h3>
+            <div data-log-group="server"></div>
+          </div>
+        </div>
+        <div class="grid two">
+          <div class="card">
+            <h3>Wiadomości</h3>
+            <div data-log-group="messages"></div>
+          </div>
+          <div class="card">
+            <h3>Zdarzenia członków</h3>
+            <div data-log-group="members"></div>
+          </div>
+        </div>
+        <div class="grid two">
+          <div class="card">
+            <h3>Wejścia i wyjścia</h3>
+            <div data-log-group="joinLeave"></div>
+            <h4>Nowe konta</h4>
+            <p class="muted small">Gdy wejdzie ktoś z kontem młodszym niż wybrany próg (tak często wyglądają multikonta), log wejścia jest żółty i może oznaczyć moderację.</p>
             <label class="toggle"><input type="checkbox" data-path="logs.newAccount.ping"><span></span>Oznaczaj przy nowym koncie</label>
             <div class="grid two tight">
               <label class="field"><span>Nowe konto = młodsze niż</span>
@@ -287,8 +305,8 @@
             <div class="field" id="new-account-roles"><span>Role do oznaczenia</span><div data-picker-slot="cfg:logs.newAccount.roleIds"></div></div>
           </div>
           <div class="card">
-            <h3>Co logować</h3>
-            <div id="log-events"></div>
+            <h3>Kanały głosowe</h3>
+            <div data-log-group="voice"></div>
           </div>
         </div>
       </section>

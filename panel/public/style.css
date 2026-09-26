@@ -419,3 +419,9 @@ select.chip-add:hover { border-color: var(--blurple); }
 #bump-preview .discord { margin-bottom: .6rem; }
 .emoji-fallback { font-size: .7rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 #msg-items .emoji-own input { width: 100%; }
+/* Lista zdarzeń logów (jak w Carl-bocie: wiersze z polem wyboru) */
+.log-list { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-bottom: .6rem; }
+.log-item { display: flex; align-items: center; gap: .6rem; padding: .55rem .8rem; cursor: pointer; font-size: .9rem; }
+.log-item + .log-item { border-top: 1px solid var(--line); }
+.log-item:hover { background: var(--bg); }
+.log-item input { width: 16px; height: 16px; accent-color: var(--blurple); margin: 0; flex: none; }

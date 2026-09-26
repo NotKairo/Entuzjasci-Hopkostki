@@ -8,7 +8,7 @@ import { reactionPath } from './rest.js';
 import { getApp, getGuildContext } from './moderation.js';
 import { syncGuildVoiceStates, onVoiceStateUpdate } from './voice.js';
 import { membersFeaturesOn, membersIntentOn, contentFeaturesOn, contentIntentOn, onMemberJoin, onMemberLeave, onMemberUpdate } from './members.js';
-import { auditLogsOn, onMessageCreateLog, onMessageUpdate, onMessageDelete, onMessageDeleteBulk, onAuditLogEntry } from './logs.js';
+import { auditLogsOn, onMessageCreateLog, onMessageUpdate, onMessageDelete, onMessageDeleteBulk, onAuditLogEntry, onMemberUpdateLog } from './logs.js';
 import { onBumpMessage } from './bump.js';
 import { onMessageAfk } from './community.js';
 
@@ -306,6 +306,7 @@ async function connectOnce(bot, { WebSocketImpl, deadline, margin, status }) {
             track(onMemberJoin(bot, packet.d));
           } else if (packet.t === 'GUILD_MEMBER_UPDATE') {
             track(onMemberUpdate(bot, packet.d));
+            track(onMemberUpdateLog(bot, packet.d));
           } else if (packet.t === 'GUILD_MEMBER_REMOVE') {
             track(onMemberLeave(bot, packet.d));
           }

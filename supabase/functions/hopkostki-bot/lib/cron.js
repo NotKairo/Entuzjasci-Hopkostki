@@ -11,6 +11,7 @@ import { sha256Hex } from './verify.js';
 import { cleanupTempVoice } from './voice.js';
 import { autoRoleSweep, ensureIntentFlags } from './members.js';
 import { bumpReminderTick, bumpScan } from './bump.js';
+import { seedMemberProfiles } from './logs.js';
 import { sendDueReminders, finishDueGiveaways } from './community.js';
 
 const SETUP_EVERY_MS = 10 * 60_000;
@@ -145,6 +146,7 @@ export async function runCron(bot, { force = false } = {}) {
     report.autoRole = await step('autoRole', () => autoRoleSweep(bot));
     report.bump = await step('bump', async () => ({ found: await bumpScan(bot), reminded: await bumpReminderTick(bot) }));
     report.reminders = await step('reminders', () => sendDueReminders(bot));
+    report.profiles = await step('profiles', () => seedMemberProfiles(bot));
     report.giveaways = await step('giveaways', () => finishDueGiveaways(bot));
     await step('prune', async () => {
       await bot.store.pruneModMessages(30);

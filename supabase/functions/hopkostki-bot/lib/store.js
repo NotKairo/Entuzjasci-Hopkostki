@@ -629,6 +629,36 @@ export function createStore(query, { configTtlMs = 10_000 } = {}) {
       await query('delete from bot.message_cache where created_at < now() - make_interval(days => $1::int)', [days]);
     },
 
+    // ---------- Profile (zdjęcie i nazwa) do logów zmian ----------
+    // Zapisuje nową wersję i zwraca poprzednią (null, jeśli tej osoby jeszcze nie znaliśmy).
+    async swapMemberProfile(userId, next) {
+      const prev = await one('select * from bot.member_profiles where user_id = $1::text', [userId]);
+      const mapped = prev ? { avatar: prev.avatar, guildAvatar: prev.guild_avatar, username: prev.username, globalName: prev.global_name } : null;
+      const same = mapped && ['avatar', 'guildAvatar', 'username', 'globalName'].every((k) => (mapped[k] ?? null) === (next[k] ?? null));
+      if (!same) {
+        await query(
+          `insert into bot.member_profiles (user_id, avatar, guild_avatar, username, global_name, updated_at)
+           values ($1::text, $2::text, $3::text, $4::text, $5::text, now())
+           on conflict (user_id) do update set avatar = excluded.avatar, guild_avatar = excluded.guild_avatar,
+             username = excluded.username, global_name = excluded.global_name, updated_at = now()`,
+          [userId, next.avatar ?? null, next.guildAvatar ?? null, next.username ?? null, next.globalName ?? null],
+        );
+      }
+      return mapped;
+    },
+
+    // Tylko osoby, których jeszcze nie znamy — istniejących nie nadpisujemy (zmianę wykryje GUILD_MEMBER_UPDATE).
+    async seedMemberProfiles(list) {
+      if (!list.length) return 0;
+      const rows = await query(
+        `insert into bot.member_profiles (user_id, avatar, guild_avatar, username, global_name)
+         select p->>'userId', p->>'avatar', p->>'guildAvatar', p->>'username', p->>'globalName' from jsonb_array_elements($1::text::jsonb) p
+         on conflict (user_id) do nothing returning user_id`,
+        [JSON.stringify(list)],
+      );
+      return rows.length;
+    },
+
     // ---------- Bumpy ----------
     async addBump({ userId, channelId, messageId }) {
       const row = await one(

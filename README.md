@@ -92,21 +92,23 @@ okienku. Z panelu korzysta właściciel kanału (oraz osoby z uprawnieniem „Za
 
 ### Logi serwera
 
-W zakładce **Logi serwera** włączasz logi i wybierasz kanał główny, a osobno (opcjonalnie) kanały dla grup:
-wiadomości, członkowie, moderacja, serwer i kanały głosowe. Każde zdarzenie włączasz osobno:
-- **wiadomości:** usunięte (z treścią i załącznikami), edytowane (przed/po, z linkiem), usuwanie zbiorcze (plik
-  .txt z treściami),
-- **członkowie:** wejścia (z wiekiem konta) i wyjścia, nadane/zabrane role, zmiany pseudonimów; przy **nowym
-  koncie** (młodszym niż 1 dzień, 3 dni, tydzień, 2 tygodnie albo 30 dni — do wyboru) log jest żółty i bot
-  oznacza **@here**, @everyone albo wybrane role (bot potrzebuje uprawnienia „Oznaczanie @everyone…”),
-- **moderacja:** bany, odbanowania, wyrzucenia i timeouty nałożone ręcznie w Discordzie albo przez inne boty,
-- **serwer:** kanały (utworzenie, zmiany z wartościami przed/po, uprawnienia, usunięcie), role (także zmiany
-  uprawnień), emoji, ustawienia serwera i zaproszenia,
-- **kanały głosowe:** wejścia, wyjścia i przejścia.
+Zakładka **Logi serwera** ma układ jak w Carl-bocie: kanał domyślny i osobne (opcjonalne) kanały dla
+członków, serwera, kanałów głosowych, wiadomości oraz wejść i wyjść, lista pomijanych kanałów i karty ze
+zdarzeniami do zaznaczenia. Domyślnie włączone są te same zdarzenia, które były zaznaczone w Carl-bocie:
+usunięte i edytowane wiadomości, wejścia i wyjścia, zmiany ról, nazw i zdjęć profilowych, bany, odbanowania
+i zmiany ról serwera. Do wyboru są też m.in.: zbiorcze usuwanie wiadomości, timeouty i ich zdjęcie,
+wyrzucenia, kanały i wątki (utworzenie, zmiany z wartościami przed/po, usunięcie), role serwera, ustawienia
+serwera, emoji, zaproszenia i kanały głosowe (wejście, przejście, wyjście).
+
+- **Zmiana zdjęcia profilowego:** log pokazuje stare i nowe zdjęcie obok siebie — bot pobiera oba obrazki od
+  razu i dołącza je do wiadomości, więc stare zdjęcie nie zniknie z logów.
+- **Zmiana nazwy:** pseudonim na serwerze (z dziennika zdarzeń) i nazwa użytkownika — przed/po.
+- **Nowe konta:** przy wejściu osoby z kontem młodszym niż wybrany próg (1 dzień – 30 dni) log jest żółty i
+  bot oznacza **@here**, @everyone albo wybrane role.
 
 Zmiany z dziennika zdarzeń Discorda pokazują, **kto** je zrobił (bot potrzebuje uprawnienia „Wyświetlanie
-dziennika zdarzeń”). Można pominąć boty i wybrane kanały. Treść wiadomości bot pamięta 7 dni (tabela
-`bot.message_cache`, czyszczona przez crona) — z niej korzysta też `/snipe`.
+dziennika zdarzeń”). Treść wiadomości bot pamięta 7 dni (tabela `bot.message_cache`, czyszczona przez crona),
+a ostatnie zdjęcia i nazwy osób — w `bot.member_profiles`; z pamięci wiadomości korzysta też `/snipe`.
 
 ### Bump (DISBOARD)
 

@@ -104,17 +104,18 @@ export const DEFAULT_CONFIG = {
     goodbye: { enabled: false, channelId: '', message: '**{nick}** opuścił(a) serwer. Zostało nas {liczba}.' },
   },
 
-  // Logi serwera jak w Carl-bocie. Każda grupa może mieć własny kanał ('' = kanał główny channelId).
-  // Zmiany ról, pseudonimów, kanałów, ról serwera, bany i kicki pochodzą z dziennika zdarzeń Discorda
-  // (bot potrzebuje uprawnienia „Wyświetlanie dziennika zdarzeń”), więc widać też, KTO coś zrobił.
+  // Logi serwera jak w Carl-bocie. Każda grupa może mieć własny kanał ('' = kanał domyślny channelId).
+  // Zmiany ról, pseudonimów, kanałów, wątków, ról serwera, bany i timeouty pochodzą z dziennika zdarzeń
+  // Discorda (bot potrzebuje uprawnienia „Wyświetlanie dziennika zdarzeń”), więc widać też, KTO coś zrobił.
+  // Domyślnie włączone są te same zdarzenia, które były zaznaczone w Carl-bocie.
   logs: {
     enabled: false,
     channelId: '',
-    messagesChannelId: '',
     membersChannelId: '',
-    moderationChannelId: '',
     serverChannelId: '',
     voiceChannelId: '',
+    messagesChannelId: '',
+    joinLeaveChannelId: '',
     ignoreBots: true,
     ignoredChannelIds: [],
     // Nowe konta (np. multikonta): przy wejściu osoby z kontem młodszym niż `days` dni log jest żółty,
@@ -126,29 +127,39 @@ export const DEFAULT_CONFIG = {
       roleIds: [],
     },
     events: {
+      // Wiadomości
       messageDelete: true,
       messageEdit: true,
-      messageBulk: true,
+      messageBulk: false,
+      // Wejścia i wyjścia
       memberJoin: true,
       memberLeave: true,
+      // Członkowie
       memberRoles: true,
       memberNick: true,
+      memberAvatar: true,
       memberBan: true,
       memberUnban: true,
-      memberKick: true,
-      memberTimeout: true,
-      channelCreate: true,
-      channelUpdate: true,
-      channelDelete: true,
-      roleCreate: true,
+      memberTimeout: false,
+      memberTimeoutRemove: false,
+      memberKick: false,
+      // Serwer
+      channelCreate: false,
+      channelUpdate: false,
+      channelDelete: false,
+      threadCreate: false,
+      threadUpdate: false,
+      threadDelete: false,
+      roleCreate: false,
       roleUpdate: true,
-      roleDelete: true,
-      emojiUpdate: true,
-      serverUpdate: true,
+      roleDelete: false,
+      serverUpdate: false,
+      emojiUpdate: false,
       inviteCreate: false,
-      voiceJoin: true,
-      voiceLeave: true,
-      voiceMove: true,
+      // Kanały głosowe
+      voiceJoin: false,
+      voiceMove: false,
+      voiceLeave: false,
     },
   },
 

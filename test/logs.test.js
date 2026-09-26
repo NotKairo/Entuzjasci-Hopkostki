@@ -9,7 +9,11 @@ import {
   onMessageDeleteBulk,
   onAuditLogEntry,
   permissionDiff,
+  onMemberUpdateLog,
+  seedMemberProfiles,
+  GROUPS,
 } from '../supabase/functions/hopkostki-bot/lib/logs.js';
+import { DEFAULT_CONFIG } from '../supabase/functions/hopkostki-bot/lib/defaults.js';
 import { onVoiceStateUpdate } from '../supabase/functions/hopkostki-bot/lib/voice.js';
 import { onMemberJoin } from '../supabase/functions/hopkostki-bot/lib/members.js';
 import { sessionIntents } from '../supabase/functions/hopkostki-bot/lib/gateway.js';
@@ -43,7 +47,7 @@ const message = (content, extra = {}) => ({
 });
 
 test('logi wiadomości: edycja z treścią przed/po, usunięcie z treścią, zbiorcze z plikiem; boty i wyciszone kanały pomijane', async () => {
-  const s = await setup();
+  const s = await setup({ events: { messageBulk: true } });
   const first = message('Cześć wszystkim');
   const second = message('druga', { attachments: [{ filename: 'kot.png', url: 'https://cdn/kot.png' }] });
   const third = message('trzecia');
@@ -125,7 +129,7 @@ test('permissionDiff: nazwy dodanych i zabranych uprawnień', () => {
 });
 
 test('logi głosowe: wejście, przejście i wyjście', async () => {
-  const s = await setup({ voiceChannelId: '100000000000000055' });
+  const s = await setup({ voiceChannelId: '100000000000000055', events: { voiceJoin: true, voiceMove: true, voiceLeave: true } });
   const member = { user: { id: 'target', username: 'hurownik_og' } };
   await onVoiceStateUpdate(s.bot, { guild_id: GUILD, user_id: 'target', channel_id: 'v1', member });
   await onVoiceStateUpdate(s.bot, { guild_id: GUILD, user_id: 'target', channel_id: 'v1', member, self_mute: true });
@@ -153,7 +157,7 @@ test('intencje sesji: dziennik zdarzeń przy logach, treść wiadomości i czło
 });
 
 test('nowe konto: ping @here poniżej progu, wybrane role zamiast @here, starsze konto bez pingu', async () => {
-  const s = await setup({ membersChannelId: '100000000000000056', newAccount: { ping: true, days: 7, mention: 'here' } });
+  const s = await setup({ joinLeaveChannelId: '100000000000000056', newAccount: { ping: true, days: 7, mention: 'here' } });
   const idAged = (days) => String(BigInt(Date.now() - days * 86_400_000 - 1420070400000) << 22n);
   const join = (id, extra = {}) => onMemberJoin(s.bot, { guild_id: GUILD, user: { id, username: `u${id.slice(-4)}`, ...extra }, roles: [], joined_at: new Date().toISOString() });
   const log = () => logged(s, '100000000000000056').at(-1);
@@ -180,4 +184,84 @@ test('nowe konto: ping @here poniżej progu, wybrane role zamiast @here, starsze
   const cfg = await s.store.updateConfig({ logs: { newAccount: { days: 999, mention: 'wszyscy' } } });
   assert.equal(cfg.logs.newAccount.days, 60);
   assert.equal(cfg.logs.newAccount.mention, 'roles');
+});
+
+test('zdjęcie profilowe: log ze starym i nowym zdjęciem (dołączone pliki, galeria), zmiana nazwy przed/po', async () => {
+  const s = await setup({ membersChannelId: '100000000000000058' });
+  const fetched = [];
+  s.bot.fetch = async (url) => {
+    fetched.push(url);
+    return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': url.includes('.gif') ? 'image/gif' : 'image/png' } });
+  };
+  const update = (user, extra = {}) => onMemberUpdateLog(s.bot, { guild_id: GUILD, user: { id: 'target', username: 'hurownik_og', ...user }, roles: [], ...extra });
+
+  await update({ avatar: 'aaa' });
+  assert.equal(logged(s, '100000000000000058').length, 0, 'pierwszy raz tylko zapamiętujemy');
+  await update({ avatar: 'aaa' });
+  assert.equal(logged(s, '100000000000000058').length, 0, 'bez zmian (np. zmiana ról) nic nie logujemy');
+
+  await update({ avatar: 'a_bbb' });
+  assert.deepEqual(fetched, ['https://cdn.discordapp.com/avatars/target/aaa.png?size=512', 'https://cdn.discordapp.com/avatars/target/a_bbb.gif?size=512']);
+  const call = s.discord.state.calls.findLast((c) => c.method === 'POST' && c.path === '/channels/100000000000000058/messages');
+  assert.deepEqual(call.files.map((f) => f.name), ['przed.png', 'po.gif']);
+  const [first, second] = call.body.embeds;
+  assert.match(first.description, /<@target> zmienił\(a\) zdjęcie profilowe/);
+  assert.equal(first.image.url, 'attachment://przed.png');
+  assert.equal(second.image.url, 'attachment://po.gif');
+  assert.equal(first.url, second.url, 'ten sam link = jedna galeria');
+
+  // Serwerowe zdjęcie ma pierwszeństwo przed zwykłym.
+  await update({ avatar: 'a_bbb' }, { avatar: 'ccc' });
+  assert.equal(fetched.at(-1), 'https://cdn.discordapp.com/guilds/g1/users/target/avatars/ccc.png?size=512');
+
+  // Gdy obrazka nie da się pobrać — zostają linki.
+  s.bot.fetch = async () => new Response('nie ma', { status: 404 });
+  await update({ avatar: 'a_bbb' }, { avatar: null });
+  const fallback = s.discord.state.calls.findLast((c) => c.method === 'POST' && c.path === '/channels/100000000000000058/messages');
+  assert.equal(fallback.files, undefined);
+  assert.match(fallback.body.embeds[0].image.url, /^https:\/\/cdn\.discordapp\.com\/guilds\/g1\/users\/target\/avatars\/ccc\.png/);
+
+  await update({ avatar: 'a_bbb', username: 'nowy_nick', global_name: 'Nowy' });
+  const name = logged(s, '100000000000000058').at(-1).embeds[0];
+  assert.match(name.description, /zmienił\(a\) nazwę użytkownika/);
+  assert.deepEqual(name.fields.map((f) => f.value), ['(`hurownik_og`)', 'Nowy (`nowy_nick`)']);
+
+  // Wyłączone zdjęcia profilowe — nic nie trafia do logów.
+  await s.store.updateConfig({ logs: { events: { memberAvatar: false } } });
+  const before = logged(s, '100000000000000058').length;
+  await update({ avatar: 'zzz', username: 'nowy_nick', global_name: 'Nowy' });
+  assert.equal(logged(s, '100000000000000058').length, before);
+});
+
+test('cron zapamiętuje zdjęcia wszystkich osób (bez nadpisywania znanych), gdy są logi profili i intencja członków', async () => {
+  const s = await setup();
+  assert.equal(await seedMemberProfiles(s.bot), 0, 'bez intencji „Server Members” nic');
+  await s.store.setState('profiles_seed', null);
+  s.discord.state.appFlags = 1 << 15;
+  s.bot.cache.delete('app');
+  assert.equal(await seedMemberProfiles(s.bot), 4);
+  assert.equal(await seedMemberProfiles(s.bot), 0, 'co 6 godzin');
+});
+
+test('wątki, zdjęcie timeoutu jako osobne zdarzenie, kanał wejść/wyjść osobno od członków', async () => {
+  const s = await setup({
+    joinLeaveChannelId: '100000000000000059',
+    events: { threadCreate: true, threadDelete: true, memberTimeout: true, memberTimeoutRemove: false },
+  });
+  await onAuditLogEntry(s.bot, { guild_id: GUILD, action_type: 110, user_id: 'mod', target_id: '777', changes: [{ key: 'name', new_value: 'pomysły' }, { key: 'type', new_value: 11 }] });
+  assert.match(logged(s)[0].embeds[0].description, /Utworzono wątek \(wątek publiczny\): <#777>\*\* `pomysły`\n\*\*Przez:\*\* <@mod>/);
+  await onAuditLogEntry(s.bot, { guild_id: GUILD, action_type: 110, user_id: 'bot', target_id: '778', changes: [{ key: 'name', new_value: 'Propozycja #1' }] });
+  assert.equal(logged(s).length, 1, 'wątki bota (np. pod propozycjami) pomijane');
+
+  const until = new Date(Date.now() + 3600_000).toISOString();
+  await onAuditLogEntry(s.bot, { guild_id: GUILD, action_type: 24, user_id: 'mod', target_id: 'target', changes: [{ key: 'communication_disabled_until', new_value: until }] });
+  await onAuditLogEntry(s.bot, { guild_id: GUILD, action_type: 24, user_id: 'mod', target_id: 'target', changes: [{ key: 'communication_disabled_until', old_value: until }] });
+  assert.equal(logged(s).length, 2, 'nałożenie timeoutu tak, zdjęcie (wyłączone) nie');
+  assert.match(logged(s)[1].embeds[0].description, /dostał\(a\) timeout/);
+});
+
+test('domyślne zdarzenia jak zaznaczone w Carl-bocie', () => {
+  const on = Object.entries(DEFAULT_CONFIG.logs.events).filter(([, v]) => v).map(([k]) => k);
+  assert.deepEqual(on, ['messageDelete', 'messageEdit', 'memberJoin', 'memberLeave', 'memberRoles', 'memberNick', 'memberAvatar', 'memberBan', 'memberUnban', 'roleUpdate']);
+  assert.deepEqual(Object.values(GROUPS).flat().sort(), Object.keys(DEFAULT_CONFIG.logs.events).sort(), 'każde zdarzenie ma grupę i ustawienie');
 });
