@@ -50,6 +50,7 @@ export const PERMISSION_LABELS = {
   [String(P.SEND_POLLS)]: 'Tworzenie ankiet',
   [String(P.SEND_MESSAGES)]: 'Wysyłanie wiadomości',
   [String(P.VIEW_CHANNEL)]: 'Wyświetlanie kanałów',
+  [String(P.MENTION_EVERYONE)]: 'Oznaczanie @everyone, @here i wszystkich ról',
   [String(P.EMBED_LINKS)]: 'Osadzanie linków',
   [String(P.ATTACH_FILES)]: 'Załączanie plików',
   [String(P.READ_MESSAGE_HISTORY)]: 'Czytanie historii wiadomości',

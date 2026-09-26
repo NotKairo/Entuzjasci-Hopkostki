@@ -263,6 +263,28 @@
             <label class="toggle"><input type="checkbox" data-path="logs.ignoreBots"><span></span>Pomijaj wiadomości i kanały głosowe botów</label>
             <div class="field"><span>Pomijane kanały (np. spam, boty)</span><div data-channel-picker-slot="logs.ignoredChannelIds"></div></div>
             <p class="muted small">Treść usuniętych wiadomości bot pamięta przez 7 dni. Kary nałożone komendami bota są w logach moderacji (Ustawienia), więc tu się nie dublują.</p>
+            <h3>Nowe konta</h3>
+            <p class="muted small">Gdy wejdzie ktoś z kontem młodszym niż wybrany próg (tak często wyglądają multikonta), log wejścia jest żółty i może oznaczyć moderację. Działa przy włączonym logu „Wejścia na serwer”.</p>
+            <label class="toggle"><input type="checkbox" data-path="logs.newAccount.ping"><span></span>Oznaczaj przy nowym koncie</label>
+            <div class="grid two tight">
+              <label class="field"><span>Nowe konto = młodsze niż</span>
+                <select data-path="logs.newAccount.days" data-number>
+                  <option value="1">1 dzień</option>
+                  <option value="3">3 dni</option>
+                  <option value="7">tydzień</option>
+                  <option value="14">2 tygodnie</option>
+                  <option value="30">30 dni</option>
+                </select>
+              </label>
+              <label class="field"><span>Kogo oznaczyć</span>
+                <select data-path="logs.newAccount.mention">
+                  <option value="here">@here (osoby online)</option>
+                  <option value="everyone">@everyone</option>
+                  <option value="roles">Wybrane role</option>
+                </select>
+              </label>
+            </div>
+            <div class="field" id="new-account-roles"><span>Role do oznaczenia</span><div data-picker-slot="cfg:logs.newAccount.roleIds"></div></div>
           </div>
           <div class="card">
             <h3>Co logować</h3>

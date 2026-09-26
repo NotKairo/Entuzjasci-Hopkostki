@@ -60,7 +60,9 @@ test('powitanie, pożegnanie i log wejść z ostrzeżeniem o młodym koncie', as
   assert.equal(welcome.embeds[0].title, 'Hej nowy!');
   assert.equal(welcome.embeds[0].description, `Witaj <@${fresh}> na Entuzjaści Hopkostki, jesteś 1337.`);
   const joinLog = s.discord.state.channels.get(LOGS)[0];
-  assert.match(joinLog.embeds[0].description, /mniej niż 7 dni/);
+  assert.match(joinLog.embeds[0].description, /nowe konto — ma mniej niż 1 dzień/);
+  assert.equal(joinLog.content, '@here', 'nowe konto oznacza @here');
+  assert.deepEqual(joinLog.allowed_mentions, { parse: ['everyone'] });
 
   await onMemberLeave(s.bot, { guild_id: GUILD, user: { id: fresh, username: 'nowy' } });
   assert.equal(s.discord.state.channels.get(WELCOME)[1].embeds[0].description, 'nowy wyszedł, zostało 1337.');

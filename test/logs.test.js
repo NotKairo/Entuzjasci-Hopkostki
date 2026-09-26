@@ -11,6 +11,7 @@ import {
   permissionDiff,
 } from '../supabase/functions/hopkostki-bot/lib/logs.js';
 import { onVoiceStateUpdate } from '../supabase/functions/hopkostki-bot/lib/voice.js';
+import { onMemberJoin } from '../supabase/functions/hopkostki-bot/lib/members.js';
 import { sessionIntents } from '../supabase/functions/hopkostki-bot/lib/gateway.js';
 import { handleInteraction } from '../supabase/functions/hopkostki-bot/lib/interactions.js';
 import { commandPayload } from './support/discord.js';
@@ -149,4 +150,34 @@ test('intencje sesji: dziennik zdarzeń przy logach, treść wiadomości i czło
   assert.equal(await sessionIntents(s.bot), base | (1 << 2) | (1 << 1) | (1 << 15));
   await s.store.updateConfig({ logs: { enabled: false } });
   assert.equal(await sessionIntents(s.bot), base);
+});
+
+test('nowe konto: ping @here poniżej progu, wybrane role zamiast @here, starsze konto bez pingu', async () => {
+  const s = await setup({ membersChannelId: '100000000000000056', newAccount: { ping: true, days: 7, mention: 'here' } });
+  const idAged = (days) => String(BigInt(Date.now() - days * 86_400_000 - 1420070400000) << 22n);
+  const join = (id, extra = {}) => onMemberJoin(s.bot, { guild_id: GUILD, user: { id, username: `u${id.slice(-4)}`, ...extra }, roles: [], joined_at: new Date().toISOString() });
+  const log = () => logged(s, '100000000000000056').at(-1);
+
+  await join(idAged(3));
+  assert.equal(log().content, '@here');
+  assert.match(log().embeds[0].description, /ma mniej niż 7 dni/);
+  assert.equal(log().embeds[0].color, 0xfee75c);
+
+  await join(idAged(30));
+  assert.equal(log().content, undefined, 'stare konto bez pingu');
+  assert.doesNotMatch(log().embeds[0].description, /nowe konto/);
+
+  await join(idAged(2), { bot: true });
+  assert.equal(log().content, undefined, 'boty bez pingu');
+
+  await s.store.updateConfig({ logs: { newAccount: { mention: 'roles', roleIds: ['100000000000000057'], days: 1 } } });
+  await join(idAged(0.5));
+  assert.equal(log().content, '<@&100000000000000057>');
+  assert.deepEqual(log().allowed_mentions, { roles: ['100000000000000057'] });
+  await join(idAged(3));
+  assert.equal(log().content, undefined, 'próg 1 dzień');
+
+  const cfg = await s.store.updateConfig({ logs: { newAccount: { days: 999, mention: 'wszyscy' } } });
+  assert.equal(cfg.logs.newAccount.days, 60);
+  assert.equal(cfg.logs.newAccount.mention, 'roles');
 });

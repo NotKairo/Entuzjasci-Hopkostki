@@ -173,19 +173,31 @@ export async function onMessageDeleteBulk(bot, data) {
 
 // ---------- Wejścia i wyjścia ----------
 
+// Oznaczenie przy nowym koncie: @here / @everyone albo wybrane role.
+export function newAccountPing(alert) {
+  if (alert.mention === 'roles') {
+    return alert.roleIds.length ? { content: alert.roleIds.map((id) => `<@&${id}>`).join(' '), allowed_mentions: { roles: alert.roleIds } } : {};
+  }
+  const who = alert.mention === 'everyone' ? '@everyone' : '@here';
+  return { content: who, allowed_mentions: { parse: ['everyone'] } };
+}
+
 export async function logMemberJoin(bot, member, memberCount) {
   const config = await bot.store.getConfig();
   if (!logChannelFor(config.logs, 'memberJoin')) return;
   const user = member.user;
   const created = Number((BigInt(user.id) >> 22n) + 1420070400000n);
-  const young = Date.now() - created < 7 * 24 * 60 * 60_000;
+  const alert = config.logs.newAccount;
+  const young = Date.now() - created < alert.days * 24 * 60 * 60_000;
+  const limit = alert.days === 1 ? '1 dzień' : `${alert.days} dni`;
   await send(bot, config, 'memberJoin', {
+    ...(young && alert.ping && !user.bot ? newAccountPing(alert) : {}),
     embeds: [
       {
         color: young ? COLOR.yellow : COLOR.green,
         author: authorOf(user, ' dołączył(a)'),
         thumbnail: { url: avatarUrl(user, 128) },
-        description: `<@${user.id}> ${escapeMarkdown(userTag(user))}${user.bot ? ' (bot)' : ''}\n**Konto założone:** ${discordTimestamp(created, 'f')} (${discordTimestamp(created, 'R')})${young ? '\n**Uwaga:** konto ma mniej niż 7 dni.' : ''}`,
+        description: `<@${user.id}> ${escapeMarkdown(userTag(user))}${user.bot ? ' (bot)' : ''}\n**Konto założone:** ${discordTimestamp(created, 'f')} (${discordTimestamp(created, 'R')})${young ? `\n**Uwaga:** nowe konto — ma mniej niż ${limit}.` : ''}`,
         footer: { text: `ID: ${user.id}${memberCount ? ` • Członków: ${memberCount}` : ''}` },
         timestamp: now(),
       },

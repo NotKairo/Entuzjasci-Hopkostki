@@ -478,6 +478,7 @@ function fillInputs() {
 
 function readValue(el) {
   if (el.type === 'checkbox') return el.checked;
+  if ('number' in el.dataset) return Number(el.value);
   if (el.type === 'number') return Math.max(0, Math.floor(Number(el.value) || 0));
   return el.value;
 }
@@ -849,6 +850,20 @@ function renderBotWarnings() {
     messageLogs && bot && !bot.contentIntent ? intent('Message Content', 'Message Content Intent') + ' Bez niej logi wiadomości nie pokażą treści.' : '',
     joinLogs && bot && !bot.membersIntent ? intent('Server Members', 'Server Members Intent') : '',
   ]);
+  const alert = logs?.newAccount;
+  $('#new-account-roles')?.classList.toggle('hidden', alert?.mention !== 'roles');
+  if (logOn('memberJoin') && alert?.ping) {
+    const warnings = $('#logs-warning');
+    const extra = alert.mention === 'roles' && !alert.roleIds.length
+      ? '<strong>Wybierz role do oznaczenia</strong> przy nowych kontach.'
+      : alert.mention !== 'roles' && bot?.missingPing?.length
+        ? `<strong>Bot nie ma uprawnienia „${esc(bot.missingPing[0])}”</strong> — bez niego ${alert.mention === 'everyone' ? '@everyone' : '@here'} nikogo nie powiadomi.`
+        : '';
+    if (extra) {
+      warnings.innerHTML = [warnings.innerHTML, extra].filter(Boolean).join('<br>');
+      warnings.classList.remove('hidden');
+    }
+  }
   set($('#bump-warning'), [
     bump?.enabled ? missing(bot?.missingBump, 'przypominajka') : '',
     bump?.enabled && bot && !bot.contentIntent ? intent('Message Content', 'Message Content Intent') + ' Bez niej bot nie odróżni udanego bumpa od „poczekaj jeszcze X minut”.' : '',

@@ -117,6 +117,14 @@ export const DEFAULT_CONFIG = {
     voiceChannelId: '',
     ignoreBots: true,
     ignoredChannelIds: [],
+    // Nowe konta (np. multikonta): przy wejściu osoby z kontem młodszym niż `days` dni log jest żółty,
+    // a gdy ping jest włączony — oznacza @here, @everyone albo wybrane role (mention: here | everyone | roles).
+    newAccount: {
+      ping: true,
+      days: 1,
+      mention: 'here',
+      roleIds: [],
+    },
     events: {
       messageDelete: true,
       messageEdit: true,

@@ -12,6 +12,7 @@ const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 export const ESCALATION_ACTIONS = ['alert', 'timeout', 'kick', 'ban'];
 export const ACTIVITY_TYPES = ['custom', 'playing', 'listening', 'watching', 'competing'];
 export const PRESENCE_STATUSES = ['online', 'idle', 'dnd'];
+export const NEW_ACCOUNT_MENTIONS = ['here', 'everyone', 'roles'];
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -105,6 +106,11 @@ function cleanValue(path, input, current, def) {
   if (path === 'commandPermissions') return cleanCommandPermissions(input, current);
   if (/roleIds$/i.test(path)) return Array.isArray(input) ? cleanRoleIds(input) : current;
   if (/channelIds$/i.test(path)) return Array.isArray(input) ? cleanRoleIds(input) : current;
+  if (path === 'logs.newAccount.mention') return NEW_ACCOUNT_MENTIONS.includes(input) ? input : current;
+  if (path === 'logs.newAccount.days') {
+    const n = Math.floor(Number(input));
+    return Number.isFinite(n) ? Math.min(60, Math.max(1, n)) : current;
+  }
   if (path === 'bump.intervalMinutes') {
     const n = Math.floor(Number(input));
     return Number.isFinite(n) ? Math.min(1440, Math.max(30, n)) : current;

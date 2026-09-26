@@ -96,8 +96,9 @@ W zakładce **Logi serwera** włączasz logi i wybierasz kanał główny, a osob
 wiadomości, członkowie, moderacja, serwer i kanały głosowe. Każde zdarzenie włączasz osobno:
 - **wiadomości:** usunięte (z treścią i załącznikami), edytowane (przed/po, z linkiem), usuwanie zbiorcze (plik
   .txt z treściami),
-- **członkowie:** wejścia (z wiekiem konta — młodsze niż 7 dni są oznaczone) i wyjścia, nadane/zabrane role,
-  zmiany pseudonimów,
+- **członkowie:** wejścia (z wiekiem konta) i wyjścia, nadane/zabrane role, zmiany pseudonimów; przy **nowym
+  koncie** (młodszym niż 1 dzień, 3 dni, tydzień, 2 tygodnie albo 30 dni — do wyboru) log jest żółty i bot
+  oznacza **@here**, @everyone albo wybrane role (bot potrzebuje uprawnienia „Oznaczanie @everyone…”),
 - **moderacja:** bany, odbanowania, wyrzucenia i timeouty nałożone ręcznie w Discordzie albo przez inne boty,
 - **serwer:** kanały (utworzenie, zmiany z wartościami przed/po, uprawnienia, usunięcie), role (także zmiany
   uprawnień), emoji, ustawienia serwera i zaproszenia,
