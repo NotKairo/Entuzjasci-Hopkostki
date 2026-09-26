@@ -13,11 +13,12 @@ import { getApp, isOurGuild, resolveGuildId } from './moderation.js';
 import { avatarUrl, messageUrl } from './rest.js';
 import { COLORS, escapeMarkdown } from './embeds.js';
 import { discordTimestamp } from './duration.js';
+import { detectInvite, inviteLine } from './invites.js';
 
 // Grupa = karta w panelu i własny kanał logów (logs.<grupa>ChannelId, puste = kanał domyślny).
 export const GROUPS = {
   messages: ['messageDelete', 'messageEdit', 'messageBulk'],
-  joinLeave: ['memberJoin', 'memberLeave'],
+  joinLeave: ['memberJoin', 'memberLeave', 'memberInvite'],
   members: ['memberRoles', 'memberNick', 'memberAvatar', 'memberBan', 'memberUnban', 'memberTimeout', 'memberTimeoutRemove', 'memberKick'],
   server: [
     'channelCreate', 'channelUpdate', 'channelDelete', 'threadCreate', 'threadUpdate', 'threadDelete',
@@ -200,6 +201,8 @@ export async function logMemberJoin(bot, member, memberCount) {
   const alert = config.logs.newAccount;
   const young = Date.now() - created < alert.days * 24 * 60 * 60_000;
   const limit = alert.days === 1 ? '1 dzień' : `${alert.days} dni`;
+  // Kto zaprosił — liczone przed wysłaniem logu, żeby było w tej samej wiadomości.
+  const invite = config.logs.events.memberInvite ? `\n${inviteLine(await detectInvite(bot, member).catch(() => null))}` : '';
   await send(bot, config, 'memberJoin', {
     ...(young && alert.ping && !user.bot ? newAccountPing(alert) : {}),
     embeds: [
@@ -207,7 +210,7 @@ export async function logMemberJoin(bot, member, memberCount) {
         color: young ? COLOR.yellow : COLOR.green,
         author: authorOf(user, ' dołączył(a)'),
         thumbnail: { url: avatarUrl(user, 128) },
-        description: `<@${user.id}> ${escapeMarkdown(userTag(user))}${user.bot ? ' (bot)' : ''}\n**Konto założone:** ${discordTimestamp(created, 'f')} (${discordTimestamp(created, 'R')})${young ? `\n**Uwaga:** nowe konto — ma mniej niż ${limit}.` : ''}`,
+        description: `<@${user.id}> ${escapeMarkdown(userTag(user))}${user.bot ? ' (bot)' : ''}\n**Konto założone:** ${discordTimestamp(created, 'f')} (${discordTimestamp(created, 'R')})${young ? `\n**Uwaga:** nowe konto — ma mniej niż ${limit}.` : ''}${invite}`,
         footer: { text: `ID: ${user.id}${memberCount ? ` • Członków: ${memberCount}` : ''}` },
         timestamp: now(),
       },
@@ -219,13 +222,15 @@ export async function logMemberLeave(bot, data) {
   const config = await bot.store.getConfig();
   if (!logChannelFor(config.logs, 'memberLeave')) return;
   const user = data.user;
+  const joined = config.logs.events.memberInvite ? await bot.store.inviteJoinFor(user.id).catch(() => null) : null;
+  const invitedBy = joined?.inviterId ? `\n**Zaproszony/a przez:** <@${joined.inviterId}> (\`${joined.code}\`)` : joined?.code ? `\n**Wszedł/weszła przez:** własny link serwera` : '';
   await send(bot, config, 'memberLeave', {
     embeds: [
       {
         color: COLOR.orange,
         author: authorOf(user, ' wyszedł/wyszła'),
         thumbnail: { url: avatarUrl(user, 128) },
-        description: `<@${user.id}> ${escapeMarkdown(userTag(user))}`,
+        description: `<@${user.id}> ${escapeMarkdown(userTag(user))}${invitedBy}`,
         footer: { text: `ID: ${user.id}` },
         timestamp: now(),
       },

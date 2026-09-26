@@ -14,6 +14,8 @@ import {
   GROUPS,
 } from '../supabase/functions/hopkostki-bot/lib/logs.js';
 import { DEFAULT_CONFIG } from '../supabase/functions/hopkostki-bot/lib/defaults.js';
+import { findUsedInvite, ensureInviteSnapshot } from '../supabase/functions/hopkostki-bot/lib/invites.js';
+import { onMemberLeave } from '../supabase/functions/hopkostki-bot/lib/members.js';
 import { onVoiceStateUpdate } from '../supabase/functions/hopkostki-bot/lib/voice.js';
 import { onMemberJoin } from '../supabase/functions/hopkostki-bot/lib/members.js';
 import { sessionIntents } from '../supabase/functions/hopkostki-bot/lib/gateway.js';
@@ -262,6 +264,54 @@ test('wątki, zdjęcie timeoutu jako osobne zdarzenie, kanał wejść/wyjść os
 
 test('domyślne zdarzenia jak zaznaczone w Carl-bocie', () => {
   const on = Object.entries(DEFAULT_CONFIG.logs.events).filter(([, v]) => v).map(([k]) => k);
-  assert.deepEqual(on, ['messageDelete', 'messageEdit', 'memberJoin', 'memberLeave', 'memberRoles', 'memberNick', 'memberAvatar', 'memberBan', 'memberUnban', 'roleUpdate']);
+  assert.deepEqual(on, ['messageDelete', 'messageEdit', 'memberJoin', 'memberLeave', 'memberInvite', 'memberRoles', 'memberNick', 'memberAvatar', 'memberBan', 'memberUnban', 'roleUpdate']);
   assert.deepEqual(Object.values(GROUPS).flat().sort(), Object.keys(DEFAULT_CONFIG.logs.events).sort(), 'każde zdarzenie ma grupę i ustawienie');
+});
+
+test('zaproszenia: kto kogo zaprosił w logu wejścia i wyjścia, /zaproszenia pokazuje ranking i osoby', async () => {
+  const s = await setup({ joinLeaveChannelId: '100000000000000060', newAccount: { ping: false } });
+  const inv = (code, inviter, uses, extra = {}) => ({ code, uses, max_uses: 0, inviter: { id: inviter }, channel: { id: 'chan' }, expires_at: null, ...extra });
+  s.discord.state.invites = [inv('abc', 'mod', 3), inv('xyz', 'owner', 0), inv('raz', 'owner', 0, { max_uses: 1 })];
+  s.discord.state.vanity = { code: 'hopkostki', uses: 10 };
+  assert.equal(await ensureInviteSnapshot(s.bot, await s.store.getConfig()), 1, 'stan początkowy z crona');
+  assert.equal(await ensureInviteSnapshot(s.bot, await s.store.getConfig()), 0, 'tylko raz');
+
+  const join = (id) => onMemberJoin(s.bot, { guild_id: GUILD, user: { id, username: `u${id.slice(-3)}` }, roles: [], joined_at: new Date().toISOString() });
+  const log = () => logged(s, '100000000000000060').at(-1).embeds[0].description;
+  const base = Date.now() - 400 * 86_400_000 - 1420070400000;
+  const aged = (n) => String(BigInt(base + n) << 22n);
+
+  s.discord.state.invites[0].uses = 4;
+  await join(aged(1));
+  assert.match(log(), /\*\*Zaprosił\(a\):\*\* <@mod> \(zaproszenie `abc`, użyte 4×\) — zaprosił\(a\) już \*\*1\*\* osobę/);
+
+  // Jednorazowe zaproszenie znika po użyciu.
+  s.discord.state.invites = s.discord.state.invites.filter((i) => i.code !== 'raz');
+  await join(aged(2));
+  assert.match(log(), /<@owner> \(zaproszenie `raz`, użyte 1×, wyczerpane\)/);
+
+  s.discord.state.vanity.uses = 11;
+  await join(aged(3));
+  assert.match(log(), /własny link serwera `discord\.gg\/hopkostki`/);
+
+  s.discord.state.invites[0].uses = 5;
+  s.discord.state.invites.push(inv('nowe', 'target', 1));
+  await join(aged(4));
+  assert.match(log(), /jedno z: `abc`, `nowe`/);
+
+  await onMemberLeave(s.bot, { guild_id: GUILD, user: { id: aged(1), username: 'ktos' } });
+  assert.match(logged(s, '100000000000000060').at(-1).embeds[0].description, /Zaproszony\/a przez:\*\* <@mod> \(`abc`\)/);
+
+  const ranking = await handleInteraction(commandPayload('zaproszenia', []), s.bot);
+  await ranking.task();
+  assert.match(s.discord.state.webhook.at(-1).body.embeds[0].description, /1\. <@mod> — \*\*1\*\*\n2\. <@owner> — \*\*1\*\*|1\. <@owner> — \*\*1\*\*\n2\. <@mod> — \*\*1\*\*/);
+  const person = await handleInteraction(commandPayload('zaproszenia', [{ name: 'uzytkownik', type: 6, value: 'mod' }], { resolvedIds: ['mod'] }), s.bot);
+  await person.task();
+  assert.match(s.discord.state.webhook.at(-1).body.embeds[0].description, /\*\*Zaprosił\(a\):\*\* 1 osobę/);
+});
+
+test('findUsedInvite: nowe zaproszenie spoza zapamiętanego stanu i wygasłe nie są mylone', () => {
+  const before = { invites: { a: { uses: 1, inviterId: 'x', maxUses: 0, expiresAt: Date.now() - 1000 } }, vanity: null };
+  assert.equal(findUsedInvite(before, { invites: {}, vanity: null }), null, 'wygasłe zaproszenie zniknęło samo');
+  assert.equal(findUsedInvite(before, { invites: { b: { uses: 1, inviterId: 'y' } }, vanity: null }).inviterId, 'y');
 });

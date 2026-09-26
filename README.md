@@ -103,6 +103,10 @@ serwera, emoji, zaproszenia i kanały głosowe (wejście, przejście, wyjście).
 - **Zmiana zdjęcia profilowego:** log pokazuje stare i nowe zdjęcie obok siebie — bot pobiera oba obrazki od
   razu i dołącza je do wiadomości, więc stare zdjęcie nie zniknie z logów.
 - **Zmiana nazwy:** pseudonim na serwerze (z dziennika zdarzeń) i nazwa użytkownika — przed/po.
+- **Kto kogo zaprosił:** log wejścia pokazuje, z czyjego zaproszenia ktoś wszedł (kod, liczba użyć i ile osób
+  ta osoba już zaprosiła), a log wyjścia — kto tę osobę zaprosił. Bot porównuje liczniki użyć zaproszeń (jak
+  boty typu Invite Tracker), więc potrzebuje uprawnienia „Zarządzanie serwerem”. `/zaproszenia` pokazuje
+  ranking albo osoby zaproszone przez wybraną osobę.
 - **Nowe konta:** przy wejściu osoby z kontem młodszym niż wybrany próg (1 dzień – 30 dni) log jest żółty i
   bot oznacza **@here**, @everyone albo wybrane role.
 
@@ -189,6 +193,7 @@ wpisujesz w przeglądarce.
 | `/propozycja tresc` | Propozycja na kanale propozycji z głosowaniem i wątkiem. |
 | `/profil` · `/rolainfo` · `/czlonkowie` | Profil użytkownika / informacje o roli / liczba członków i online. |
 | `/losuj kostka/moneta/liczba/wybor` · `/bumpy ranking/status` | Losowanie / ranking bumpów i kiedy następny. |
+| `/zaproszenia [uzytkownik]` | Ranking zaproszeń albo kogo zaprosiła dana osoba. |
 | `/pomoc` | Lista komend. |
 
 **Jednostki czasu** wybierasz z listy: minuty, godziny, dni, tygodnie albo miesiące (30 dni). W wiadomości
@@ -255,6 +260,7 @@ supabase/
     lib/logs.js                   logi serwera (wiadomości, członkowie, dziennik zdarzeń, kanały głosowe)
     lib/bump.js                   przypominajka o bumpie DISBOARD
     lib/community.js              AFK, przypomnienia, konkursy, propozycje
+    lib/invites.js                kto kogo zaprosił (porównanie liczników użyć zaproszeń)
     lib/communityCommands.js      komendy na co dzień (/ankieta, /konkurs, /snipe, /emoji, /losuj…)
     lib/panel.js                  API panelu
     lib/store.js                  zapytania SQL

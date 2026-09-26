@@ -873,7 +873,7 @@ const pomoc = {
               value: [
                 '`/profil` · `/serwer` · `/czlonkowie` · `/avatar`',
                 '`/przypomnij` · `/afk` · `/propozycja` · `/losuj`',
-                '`/bumpy` — ranking bumpów i kiedy następny · `/pomoc`',
+                '`/bumpy` — ranking bumpów · `/zaproszenia` — kto kogo zaprosił · `/pomoc`',
               ].join('\n'),
             },
           ],

@@ -134,6 +134,7 @@ export const DEFAULT_CONFIG = {
       // Wejścia i wyjścia
       memberJoin: true,
       memberLeave: true,
+      memberInvite: true,
       // Członkowie
       memberRoles: true,
       memberNick: true,

@@ -659,6 +659,42 @@ export function createStore(query, { configTtlMs = 10_000 } = {}) {
       return rows.length;
     },
 
+    // ---------- Zaproszenia (kto kogo zaprosił) ----------
+    async addInviteJoin({ userId, inviterId, code }) {
+      await query('insert into bot.invite_joins (user_id, inviter_id, code) values ($1::text, $2::text, $3::text)', [userId, inviterId ?? null, code ?? null]);
+    },
+
+    async inviteJoinFor(userId) {
+      const row = await one('select * from bot.invite_joins where user_id = $1::text order by joined_at desc limit 1', [userId]);
+      return row ? { userId: row.user_id, inviterId: row.inviter_id, code: row.code, joinedAt: ms(row.joined_at) } : null;
+    },
+
+    // Ile różnych osób weszło z zaproszeń tej osoby.
+    async inviteCount(inviterId) {
+      return (await one('select count(distinct user_id)::int as n from bot.invite_joins where inviter_id = $1::text', [inviterId]))?.n ?? 0;
+    },
+
+    async invitedBy(inviterId, limit = 10) {
+      const rows = await query(
+        `select distinct on (user_id) user_id, code, joined_at from bot.invite_joins where inviter_id = $1::text
+         order by user_id, joined_at desc`,
+        [inviterId],
+      );
+      return rows
+        .map((r) => ({ userId: r.user_id, code: r.code, joinedAt: ms(r.joined_at) }))
+        .sort((a, b) => b.joinedAt - a.joinedAt)
+        .slice(0, limit);
+    },
+
+    async inviteRanking(limit = 10) {
+      const rows = await query(
+        `select inviter_id, count(distinct user_id)::int as n from bot.invite_joins where inviter_id is not null
+         group by inviter_id order by n desc, max(joined_at) desc limit $1::int`,
+        [limit],
+      );
+      return rows.map((r) => ({ inviterId: r.inviter_id, count: r.n }));
+    },
+
     // ---------- Bumpy ----------
     async addBump({ userId, channelId, messageId }) {
       const row = await one(

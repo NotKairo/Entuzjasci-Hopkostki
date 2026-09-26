@@ -53,6 +53,8 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
     appFlags: 0,
     emojis: [],
     threads: [],
+    invites: [],
+    vanity: null,
   };
 
   const channelMessages = (id) => {
@@ -83,6 +85,8 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
       return body;
     }],
     ['GET', /^\/guilds\/g1$/, () => ({ id: GUILD, name: 'Entuzjaści Hopkostki', icon: null, owner_id: 'owner', roles: ROLES, approximate_member_count: 1337, emojis: EMOJIS })],
+    ['GET', /^\/guilds\/g1\/invites$/, () => state.invites],
+    ['GET', /^\/guilds\/g1\/vanity-url$/, () => state.vanity ?? notFound(50020)],
     ['POST', /^\/guilds\/g1\/emojis$/, (m, body) => {
       const emoji = { id: snowflake(), name: body.name, animated: false };
       state.emojis.push({ ...emoji, image: body.image });

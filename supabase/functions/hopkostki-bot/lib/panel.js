@@ -95,6 +95,7 @@ async function guildInfo(bot) {
       missingTickets: missing([P.MANAGE_CHANNELS, P.MANAGE_ROLES]),
       missingLogs: missing([P.VIEW_AUDIT_LOG, P.VIEW_CHANNEL, P.SEND_MESSAGES, P.EMBED_LINKS, P.ATTACH_FILES]),
       missingPing: missing([P.MENTION_EVERYONE]),
+      missingInvites: missing([P.MANAGE_GUILD]),
       missingBump: missing([P.VIEW_CHANNEL, P.SEND_MESSAGES, P.EMBED_LINKS, P.READ_MESSAGE_HISTORY]),
       missingCommunity: missing([P.ADD_REACTIONS, P.CREATE_PUBLIC_THREADS, P.SEND_POLLS, P.MANAGE_GUILD_EXPRESSIONS]),
       membersIntent: membersIntentOn(app),

@@ -488,6 +488,43 @@ const losuj = {
   },
 };
 
+// ---------- /zaproszenia ----------
+const zaproszenia = {
+  permission: null,
+  defer: 'public',
+  data: {
+    name: 'zaproszenia',
+    description: '📨 Kto kogo zaprosił: ranking albo osoby zaproszone przez wybraną osobę',
+    ...GUILD_ONLY,
+    options: [user('uzytkownik', '👤 Czyje zaproszenia pokazać (puste = ranking)')],
+  },
+  async execute(ix, bot) {
+    const target = ix.getUser('uzytkownik');
+    if (target) {
+      const [count, list, invitedBy] = await Promise.all([bot.store.inviteCount(target.id), bot.store.invitedBy(target.id, 10), bot.store.inviteJoinFor(target.id)]);
+      const lines = list.map((j) => `<@${j.userId}> — ${discordTimestamp(j.joinedAt, 'R')} (\`${j.code}\`)`);
+      const from = invitedBy?.inviterId ? `\n**Sam(a) wszedł/weszła z zaproszenia:** <@${invitedBy.inviterId}>` : '';
+      return ix.edit({
+        embeds: [
+          {
+            color: embeds.COLORS.info,
+            author: { name: `Zaproszenia — ${target.global_name ?? target.username}`, icon_url: avatarUrl(target, 64) },
+            description: `**Zaprosił(a):** ${count} ${count === 1 ? 'osobę' : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14) ? 'osoby' : 'osób'}${from}${lines.length ? `\n\n**Ostatnio:**\n${lines.join('\n')}` : ''}`,
+            footer: { text: 'Liczone od włączenia logów zaproszeń' },
+          },
+        ],
+        allowed_mentions: { parse: [] },
+      });
+    }
+    const ranking = await bot.store.inviteRanking(10);
+    const lines = ranking.map((r, i) => `${i + 1}. <@${r.inviterId}> — **${r.count}**`);
+    return ix.edit({
+      embeds: [{ ...embeds.simpleEmbed('info', 'Ranking zaproszeń', lines.join('\n') || 'Nikt jeszcze nikogo nie zaprosił (liczone od włączenia logów zaproszeń).'), footer: { text: 'Liczone od włączenia logów zaproszeń' } }],
+      allowed_mentions: { parse: [] },
+    });
+  },
+};
+
 // ---------- /bumpy ----------
 const bumpy = {
   permission: null,
@@ -530,4 +567,4 @@ const bumpy = {
   },
 };
 
-export const COMMUNITY_COMMANDS = [ankieta, przypomnij, konkurs, snipe, profil, rolainfo, emoji, powiedz, czlonkowie, afk, propozycja, losuj, bumpy];
+export const COMMUNITY_COMMANDS = [ankieta, przypomnij, konkurs, snipe, profil, rolainfo, emoji, powiedz, czlonkowie, afk, propozycja, losuj, bumpy, zaproszenia];
