@@ -29,7 +29,7 @@ const EMPTY_GUILD = { channels: [], voiceChannels: [], categories: [], roles: []
 // Grupy jak karty w Carl-bocie; klucz = logs.<klucz>ChannelId (kanał grupy).
 const LOG_EVENT_GROUPS = {
   messages: [['messageDelete', 'Usunięte wiadomości'], ['messageEdit', 'Edytowane wiadomości'], ['messageBulk', 'Zbiorczo usunięte wiadomości (np. /clear)']],
-  joinLeave: [['memberJoin', 'Wejścia na serwer'], ['memberLeave', 'Wyjścia z serwera']],
+  joinLeave: [['memberJoin', 'Wejścia na serwer'], ['memberLeave', 'Wyjścia z serwera'], ['memberInvite', 'Kto zaprosił (zaproszenie przy wejściu i wyjściu)']],
   members: [
     ['memberRoles', 'Zmiany ról'],
     ['memberNick', 'Zmiany nazw (pseudonim i nazwa użytkownika)'],
@@ -860,6 +860,11 @@ function renderBotWarnings() {
     messageLogs && bot && !bot.contentIntent ? intent('Message Content', 'Message Content Intent') + ' Bez niej logi wiadomości nie pokażą treści.' : '',
     joinLogs && bot && !bot.membersIntent ? intent('Server Members', 'Server Members Intent') : '',
   ]);
+  if (logOn('memberJoin') && logs?.events.memberInvite && bot?.missingInvites?.length) {
+    const warnings = $('#logs-warning');
+    warnings.innerHTML = [warnings.innerHTML, `<strong>Bot nie ma uprawnienia „${esc(bot.missingInvites[0])}”</strong> — bez niego nie zobaczy zaproszeń i nie ustali, kto kogo zaprosił.`].filter(Boolean).join('<br>');
+    warnings.classList.remove('hidden');
+  }
   const alert = logs?.newAccount;
   $('#new-account-roles')?.classList.toggle('hidden', alert?.mention !== 'roles');
   if (logOn('memberJoin') && alert?.ping) {
