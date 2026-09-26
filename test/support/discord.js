@@ -5,7 +5,8 @@ export const GUILD = 'g1';
 export const ROLES = [
   { id: GUILD, name: '@everyone', position: 0, permissions: '0', color: 0 },
   { id: 'r-member', name: 'Entuzjasta', position: 1, permissions: '0', color: 0xf1c40f },
-  { id: 'r-bot', name: 'Bot', position: 8, permissions: String((1n << 1n) | (1n << 2n) | (1n << 40n) | (1n << 13n) | (1n << 4n) | (1n << 28n)), color: 0 },
+  { id: 'r-fan', name: 'Fan', position: 2, permissions: '0', color: 0x2ecc71 },
+  { id: 'r-bot', name: 'Bot', position: 8, permissions: String((1n << 1n) | (1n << 2n) | (1n << 40n) | (1n << 13n) | (1n << 4n) | (1n << 27n) | (1n << 28n)), color: 0 },
   { id: 'r-mod', name: 'Moderator', position: 5, permissions: String((1n << 2n) | (1n << 1n) | (1n << 40n)), color: 0x3498db },
   { id: 'r-admin', name: 'Admin', position: 9, permissions: String(1n << 3n), color: 0xe74c3c },
 ];
@@ -63,6 +64,7 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
       return { id: 'app', interactions_endpoint_url: state.endpoint };
     }],
     ['GET', /^\/users\/@me\/guilds$/, () => [{ id: GUILD, name: 'Entuzjaści Hopkostki' }]],
+    ['GET', /^\/gateway\/bot$/, () => ({ url: 'wss://gateway.example', shards: 1, session_start_limit: { total: 1000, remaining: state.identifyRemaining ?? 1000 } })],
     ['PUT', /^\/applications\/app\/guilds\/g1\/commands$/, (m, body) => {
       state.commands = body;
       return body;
@@ -86,6 +88,15 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
     ['DELETE', /^\/guilds\/g1\/members\/(\w+)$/, ([, id], body, opts) => {
       state.kicked.push({ id, reason: opts.reason });
       members.delete(id);
+      return null;
+    }],
+    ['PUT', /^\/guilds\/g1\/members\/(\w+)\/roles\/([\w-]+)$/, ([, id, role]) => {
+      members.get(id)?.roles.push(role);
+      return null;
+    }],
+    ['DELETE', /^\/guilds\/g1\/members\/(\w+)\/roles\/([\w-]+)$/, ([, id, role]) => {
+      const member = members.get(id);
+      if (member) member.roles = member.roles.filter((r) => r !== role);
       return null;
     }],
     ['PATCH', /^\/guilds\/g1\/members\/(\w+)$/, ([, id], body) => {

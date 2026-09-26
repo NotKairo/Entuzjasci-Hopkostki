@@ -49,25 +49,44 @@ function mapTempBan(r) {
 const CASE_COLUMNS = { reason: 'reason', note: 'note', dmStatus: 'dm_status', messageUrl: 'message_url' };
 const ACTIVE_WARN = '(expires_at is null or expires_at > now())';
 
-export function createStore(query) {
+function mapNote(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    userTag: r.user_tag,
+    authorId: r.author_id,
+    authorTag: r.author_tag,
+    text: r.text,
+    createdAt: ms(r.created_at),
+  };
+}
+
+// configTtlMs: jak długo trzymać konfigurację w pamięci (mniej zapytań = szybsza odpowiedź dla Discorda).
+export function createStore(query, { configTtlMs = 10_000 } = {}) {
   const one = async (text, params) => (await query(text, params))[0] ?? null;
+  let configCache = null;
 
   const store = {
     query,
 
     // ---------- Konfiguracja ----------
     async getConfig() {
+      if (configCache && Date.now() - configCache.at < configTtlMs) return configCache.value;
       const row = await one('select data from bot.config where id = 1');
-      return mergeWithDefaults(DEFAULT_CONFIG, row?.data);
+      const value = mergeWithDefaults(DEFAULT_CONFIG, row?.data);
+      configCache = { at: Date.now(), value };
+      return value;
     },
 
     async updateConfig(input) {
+      configCache = null;
       const next = sanitizeConfig(input, await store.getConfig());
       await query(
         `insert into bot.config (id, data, updated_at) values (1, $1::text::jsonb, now())
          on conflict (id) do update set data = excluded.data, updated_at = now()`,
         [JSON.stringify(next)],
       );
+      configCache = { at: Date.now(), value: next };
       return next;
     },
 
@@ -289,18 +308,47 @@ export function createStore(query) {
       );
     },
 
-    // Blokada, żeby dwa przebiegi crona nie działały naraz (wygasa po 60 s na wypadek awarii).
-    async acquireCronLock() {
+    // Blokada (dzierżawa) na czas działania zadania — wygasa sama, gdyby zadanie padło.
+    async acquireLease(key, seconds) {
+      await query(
+        `insert into bot.state (key, value) values ($1::text, to_jsonb('1970-01-01T00:00:00Z'::text))
+         on conflict (key) do nothing`,
+        [key],
+      );
       const rows = await query(
         `update bot.state set value = to_jsonb(now()::text), updated_at = now()
-         where key = 'cron_lock' and (value #>> '{}')::timestamptz < now() - interval '60 seconds'
+         where key = $1::text and (value #>> '{}')::timestamptz < now() - make_interval(secs => $2::int)
          returning key`,
+        [key, seconds],
       );
       return rows.length > 0;
     },
 
-    async releaseCronLock() {
-      await query(`update bot.state set value = to_jsonb('1970-01-01T00:00:00Z'::text) where key = 'cron_lock'`);
+    async releaseLease(key) {
+      await query(`update bot.state set value = to_jsonb('1970-01-01T00:00:00Z'::text) where key = $1::text`, [key]);
+    },
+
+    acquireCronLock: () => store.acquireLease('cron_lock', 60),
+    releaseCronLock: () => store.releaseLease('cron_lock'),
+
+    // ---------- Notatki moderatorów ----------
+    async addNote({ guildId, userId, userTag, authorId, authorTag, text }) {
+      const row = await one(
+        `insert into bot.notes (guild_id, user_id, user_tag, author_id, author_tag, text)
+         values ($1::text, $2::text, $3::text, $4::text, $5::text, $6::text) returning *`,
+        [guildId, userId, userTag, authorId, authorTag, text],
+      );
+      return mapNote(row);
+    },
+
+    async listNotes(userId) {
+      const rows = await query('select * from bot.notes where user_id = $1::text order by id desc', [userId]);
+      return rows.map(mapNote);
+    },
+
+    async removeNote(id) {
+      const row = await one('delete from bot.notes where id = $1::int returning *', [id]);
+      return row ? mapNote(row) : null;
     },
 
     async stats() {

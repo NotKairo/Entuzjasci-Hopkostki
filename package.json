@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "panel": "node panel/server.js",
+    "build:panel": "node panel/build-assets.mjs",
     "test": "node --test"
   },
   "engines": {

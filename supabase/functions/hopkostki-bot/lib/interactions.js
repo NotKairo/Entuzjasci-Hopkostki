@@ -2,11 +2,12 @@
 // więc komendy są od razu "odraczane" (type 5), a właściwa praca dzieje się w tle.
 
 import { COMMAND_MAP } from './commands.js';
+import { VIEWS, parseCustomId, renderView } from './views.js';
 import { hasModAccess, describeError, ActionError, announceElsewhere } from './moderation.js';
 import { errorEmbed } from './embeds.js';
 
-const TYPE = { PING: 1, COMMAND: 2, AUTOCOMPLETE: 4 };
-const RESPONSE = { PONG: 1, MESSAGE: 4, DEFERRED: 5, AUTOCOMPLETE: 8 };
+const TYPE = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4 };
+const RESPONSE = { PONG: 1, MESSAGE: 4, DEFERRED: 5, DEFERRED_UPDATE: 6, AUTOCOMPLETE: 8 };
 export const EPHEMERAL = 64;
 
 function flattenOptions(options = []) {
@@ -41,8 +42,11 @@ export function wrapInteraction(body, bot) {
     raw: body,
     guildId: body.guild_id,
     channelId: body.channel_id ?? body.channel?.id ?? null,
-    name: data.name,
+    name: data.name ?? data.custom_id,
     sub,
+    isComponent: body.type === TYPE.COMPONENT,
+    customId: data.custom_id ?? null,
+    values: data.values ?? [],
     user: body.member?.user ?? body.user,
     member,
     ephemeral: false,
@@ -66,6 +70,7 @@ export function wrapInteraction(body, bot) {
 export async function replyError(ix, message) {
   const payload = { content: '', embeds: [errorEmbed(message)] };
   try {
+    if (ix.isComponent) return await ix.followUp({ ...payload, flags: EPHEMERAL });
     if (ix.ephemeral) return await ix.edit(payload);
     // Publiczna odpowiedź była odroczona — usuwamy ją, żeby błąd nie wisiał na kanale.
     await ix.delete().catch(() => {});
@@ -88,6 +93,8 @@ export async function handleInteraction(body, bot) {
     return { response: ephemeralMessage('Ten bot działa tylko na serwerze Entuzjaści Hopkostki.') };
   }
 
+  if (body.type === TYPE.COMPONENT) return handleComponent(body, bot);
+
   const command = COMMAND_MAP.get(body.data?.name);
   if (!command) return { response: ephemeralMessage('Nieznana komenda — spróbuj ponownie za chwilę.') };
 
@@ -96,19 +103,20 @@ export async function handleInteraction(body, bot) {
 
   if (body.type === TYPE.AUTOCOMPLETE) {
     let choices = [];
-    if (command.autocomplete && hasModAccess(ix.member, command.permission, config)) {
+    if (command.autocomplete && hasModAccess(ix.member, command.permission, config, command.data.name)) {
       choices = await command.autocomplete(ix, bot).catch(() => []);
     }
     return { response: { type: RESPONSE.AUTOCOMPLETE, data: { choices } } };
   }
   if (body.type !== TYPE.COMMAND) return { response: ephemeralMessage('Nieobsługiwany typ interakcji.') };
 
-  if (command.permission && !hasModAccess(ix.member, command.permission, config)) {
+  if (!hasModAccess(ix.member, command.permission, config, command.data.name)) {
     return { response: ephemeralMessage('Nie masz uprawnień do tej komendy.') };
   }
 
   const mode = typeof command.defer === 'function' ? command.defer(ix) : command.defer;
-  ix.ephemeral = mode === 'ephemeral' || announceElsewhere(config, ix.channelId);
+  // 'action' = kara ogłaszana publicznie (chyba że jest osobny kanał ogłoszeń), 'public', 'ephemeral'.
+  ix.ephemeral = mode === 'ephemeral' || (mode === 'action' && announceElsewhere(config, ix.channelId));
 
   const task = async () => {
     try {
@@ -119,4 +127,31 @@ export async function handleInteraction(body, bot) {
     }
   };
   return { response: { type: RESPONSE.DEFERRED, data: ix.ephemeral ? { flags: EPHEMERAL } : {} }, task, ix };
+}
+
+// Przyciski stron (◀ 1 2 3 ▶) i listy wyboru. Odpowiadamy od razu "aktualizuję wiadomość" (type 6),
+// a nową stronę wysyłamy w tle, edytując wiadomość z przyciskami.
+async function handleComponent(body, bot) {
+  const parsed = parseCustomId(body.data?.custom_id);
+  if (!parsed) return { response: ephemeralMessage('Ten przycisk jest już nieaktualny.') };
+  const ix = wrapInteraction(body, bot);
+  const config = await bot.store.getConfig();
+  const view = VIEWS[parsed.kind];
+  if (!hasModAccess(ix.member, view.permission, config, view.command)) {
+    return { response: ephemeralMessage('Nie masz uprawnień do tej listy.') };
+  }
+
+  const task = async () => {
+    try {
+      let note = null;
+      if (parsed.action === 'sel' && VIEWS[parsed.kind].onSelect) {
+        note = await VIEWS[parsed.kind].onSelect(bot, ix, parsed.arg, ix.values);
+      }
+      await ix.edit(await renderView(bot, parsed.kind, parsed.arg, parsed.page, { note }));
+    } catch (error) {
+      if (!(error instanceof ActionError)) console.error(`[komponent ${parsed.kind}]`, error);
+      await replyError(ix, describeError(error));
+    }
+  };
+  return { response: { type: RESPONSE.DEFERRED_UPDATE }, task, ix };
 }

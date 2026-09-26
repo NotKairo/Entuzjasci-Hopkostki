@@ -1,10 +1,10 @@
 // Definicje komend slash (JSON API Discorda) i ich obsługa.
-// Każda komenda: { data, permission, defer: 'action' | 'ephemeral', execute(ix, bot), autocomplete? }
+// Każda komenda: { data, permission, defer: 'action' | 'public' | 'ephemeral', execute(ix, bot), autocomplete? }
 
-import { UNIT_CHOICES, MAX_TIMEOUT_MS, toMs, formatDuration, discordTimestamp } from './duration.js';
-import { P } from './permissions.js';
+import { UNIT_CHOICES, MAX_TIMEOUT_MS, toMs, discordTimestamp } from './duration.js';
+import { P, has, highestPosition, permissionLabel } from './permissions.js';
 import * as embeds from './embeds.js';
-import { avatarUrl } from './rest.js';
+import { avatarUrl, guildIconUrl } from './rest.js';
 import {
   ActionError,
   checkTarget,
@@ -16,10 +16,12 @@ import {
   untimeoutUser,
   warnUser,
   sendModLog,
+  hasModAccess,
 } from './moderation.js';
+import { VIEWS, renderView } from './views.js';
 
 // ---------- Budowanie opcji ----------
-const T = { SUB: 1, STRING: 3, INTEGER: 4, USER: 6, CHANNEL: 7 };
+const T = { SUB: 1, STRING: 3, INTEGER: 4, USER: 6, CHANNEL: 7, ROLE: 8 };
 const CH = { TEXT: 0, ANNOUNCEMENT: 5, FORUM: 15 };
 const GUILD_ONLY = { contexts: [0] };
 
@@ -27,6 +29,7 @@ const user = (name, description, required = false) => ({ type: T.USER, name, des
 const str = (name, description, extra = {}) => ({ type: T.STRING, name, description, ...extra });
 const int = (name, description, extra = {}) => ({ type: T.INTEGER, name, description, ...extra });
 const sub = (name, description, options = []) => ({ type: T.SUB, name, description, options });
+const channelOpt = (description, types) => ({ type: T.CHANNEL, name: 'kanal', description, channel_types: types });
 const reasonOpt = (description, required = true) => str('powod', description, { required, max_length: 500 });
 const perm = (bits) => String(bits);
 
@@ -47,7 +50,8 @@ async function ensureTarget(ix, bot, action, name) {
   return { target, targetMember };
 }
 
-const snowflakeTime = (id) => Number((BigInt(id) >> 22n) + 1420070400000n);
+const snowflakeTime = (id) => (/^\d+$/.test(String(id)) ? Number((BigInt(id) >> 22n) + 1420070400000n) : null);
+const stamp = (ms) => (ms ? `${discordTimestamp(ms, 'D')} (${discordTimestamp(ms, 'R')})` : '—');
 
 // ---------- Kary ----------
 const ban = {
@@ -55,20 +59,20 @@ const ban = {
   defer: 'action',
   data: {
     name: 'ban',
-    description: 'Banuje użytkownika na określony czas lub na zawsze',
+    description: '⛔ Zbanuj użytkownika na określony czas albo na zawsze',
     default_member_permissions: perm(P.BAN_MEMBERS),
     ...GUILD_ONLY,
     options: [
-      user('uzytkownik', 'Kogo zbanować', true),
-      reasonOpt('Powód bana'),
-      int('czas', 'Na ile (puste = ban permanentny)', { min_value: 1, max_value: 1000 }),
-      str('jednostka', 'Jednostka czasu (domyślnie dni)', { choices: UNIT_CHOICES }),
-      int('usun_wiadomosci', 'Usunąć ostatnie wiadomości użytkownika?', {
+      user('uzytkownik', '👤 Kogo zbanować (działa też na osoby spoza serwera — wklej ID)', true),
+      reasonOpt('📝 Za co? Powód zobaczy ukarany, moderacja i logi'),
+      int('czas', '⏱️ Ile jednostek czasu, np. 7 — zostaw puste, żeby zbanować na zawsze', { min_value: 1, max_value: 1000 }),
+      str('jednostka', '📅 Jednostka czasu: minuty, godziny, dni, tygodnie lub miesiące (domyślnie dni)', { choices: UNIT_CHOICES }),
+      int('usun_wiadomosci', '🧹 Usunąć też ostatnie wiadomości tej osoby?', {
         choices: [
-          { name: 'Nie usuwaj', value: 0 },
-          { name: 'Z ostatniej godziny', value: 3600 },
-          { name: 'Z ostatnich 24 godzin', value: 86400 },
-          { name: 'Z ostatnich 7 dni', value: 604800 },
+          { name: '❌ Nie usuwaj', value: 0 },
+          { name: '🕐 Z ostatniej godziny', value: 3600 },
+          { name: '📅 Z ostatnich 24 godzin', value: 86400 },
+          { name: '🗓️ Z ostatnich 7 dni', value: 604800 },
         ],
       }),
     ],
@@ -89,15 +93,16 @@ const ban = {
 
 const unban = {
   permission: P.BAN_MEMBERS,
-  defer: 'action',
+  // Bez użytkownika pokazujemy listę banów ze stronami, więc odpowiedź jest prywatna.
+  defer: (ix) => (ix.opt('uzytkownik') ? 'action' : 'ephemeral'),
   data: {
     name: 'unban',
-    description: 'Zdejmuje bana z użytkownika',
+    description: '✅ Zdejmij bana — podaj osobę albo zostaw puste, żeby zobaczyć listę zbanowanych',
     default_member_permissions: perm(P.BAN_MEMBERS),
     ...GUILD_ONLY,
     options: [
-      str('uzytkownik', 'Zbanowany użytkownik (nick lub ID)', { required: true, autocomplete: true }),
-      reasonOpt('Powód odbanowania', false),
+      str('uzytkownik', '👤 Zbanowana osoba (zacznij pisać nick lub ID) — puste = lista wszystkich banów', { autocomplete: true }),
+      reasonOpt('📝 Dlaczego zdejmujesz bana (opcjonalnie)', false),
     ],
   },
   async autocomplete(ix, bot) {
@@ -114,12 +119,14 @@ const unban = {
       .map((b) => ({ name: `${b.user.username} (${b.user.id})`.slice(0, 100), value: b.user.id }));
   },
   async execute(ix, bot) {
-    const raw = String(ix.opt('uzytkownik')).replace(/[<@!>]/g, '').trim();
+    const option = ix.opt('uzytkownik');
+    if (!option) return ix.edit(await renderView(bot, 'b', '-', 1));
+    const raw = String(option).replace(/[<@!>]/g, '').trim();
     if (!/^\d{15,25}$/.test(raw)) throw new ReplyError('Wybierz użytkownika z listy albo podaj jego ID.');
     const target = await bot.discord.get(`/users/${raw}`).catch(() => null);
     if (!target) throw new ReplyError('Nie znaleziono użytkownika o takim ID.');
     bot.cache.delete('bans');
-    await unbanUser(bot, { interaction: ix, target, moderator: ix.user, reason: ix.opt('powod') ?? 'Nie podano powodu' });
+    return unbanUser(bot, { interaction: ix, target, moderator: ix.user, reason: ix.opt('powod') ?? 'Nie podano powodu' });
   },
 };
 
@@ -128,10 +135,10 @@ const kick = {
   defer: 'action',
   data: {
     name: 'kick',
-    description: 'Wyrzuca użytkownika z serwera',
+    description: '👢 Wyrzuć użytkownika z serwera (może wrócić z nowym zaproszeniem)',
     default_member_permissions: perm(P.KICK_MEMBERS),
     ...GUILD_ONLY,
-    options: [user('uzytkownik', 'Kogo wyrzucić', true), reasonOpt('Powód wyrzucenia')],
+    options: [user('uzytkownik', '👤 Kogo wyrzucić', true), reasonOpt('📝 Za co? Powód zobaczy wyrzucony i moderacja')],
   },
   async execute(ix, bot) {
     const { target } = await ensureTarget(ix, bot, 'kick');
@@ -144,14 +151,14 @@ const timeout = {
   defer: 'action',
   data: {
     name: 'timeout',
-    description: 'Wycisza użytkownika na określony czas (maks. 28 dni)',
+    description: '🔇 Wycisz użytkownika na określony czas (maksymalnie 28 dni)',
     default_member_permissions: perm(P.MODERATE_MEMBERS),
     ...GUILD_ONLY,
     options: [
-      user('uzytkownik', 'Kogo wyciszyć', true),
-      int('czas', 'Na ile', { required: true, min_value: 1, max_value: 40320 }),
-      str('jednostka', 'Jednostka czasu', { required: true, choices: UNIT_CHOICES }),
-      reasonOpt('Powód wyciszenia'),
+      user('uzytkownik', '👤 Kogo wyciszyć', true),
+      int('czas', '⏱️ Ile jednostek czasu, np. 30', { required: true, min_value: 1, max_value: 40320 }),
+      str('jednostka', '📅 Jednostka czasu: minuty, godziny, dni lub tygodnie', { required: true, choices: UNIT_CHOICES }),
+      reasonOpt('📝 Za co? Powód zobaczy wyciszony i moderacja'),
     ],
   },
   async execute(ix, bot) {
@@ -169,10 +176,10 @@ const untimeout = {
   defer: 'action',
   data: {
     name: 'untimeout',
-    description: 'Zdejmuje timeout z użytkownika',
+    description: '🔊 Zdejmij wyciszenie (timeout) przed czasem',
     default_member_permissions: perm(P.MODERATE_MEMBERS),
     ...GUILD_ONLY,
-    options: [user('uzytkownik', 'Komu zdjąć timeout', true), reasonOpt('Powód', false)],
+    options: [user('uzytkownik', '👤 Komu zdjąć timeout', true), reasonOpt('📝 Dlaczego zdejmujesz timeout (opcjonalnie)', false)],
   },
   async execute(ix, bot) {
     const { target, targetMember } = await ensureTarget(ix, bot, 'untimeout');
@@ -183,78 +190,30 @@ const untimeout = {
 };
 
 // ---------- Ostrzeżenia ----------
-const ESCALATION_NAMES = { alert: 'powiadomienie moderacji', timeout: 'timeout', kick: 'kick', ban: 'ban' };
-const CASE_NAMES = { ban: 'bany', kick: 'kicki', timeout: 'timeouty', warn: 'ostrzeżenia (łącznie)' };
-
-function describeRule(rule) {
-  const name = ESCALATION_NAMES[rule.action];
-  if (rule.action === 'alert' || rule.action === 'kick') return name;
-  return rule.amount > 0 ? `${name} na ${formatDuration(rule.amount, rule.unit)}` : `${name} permanentny`;
-}
-
-export async function warnStatusEmbed(bot, target) {
-  const config = await bot.store.getConfig();
-  const summary = await bot.store.warnSummary(target.id);
-  const counts = await bot.store.caseCounts(target.id);
-  const { escalation, warns: warnConfig, actions } = config;
-  const scale = escalation.rules.at(-1)?.points ?? 10;
-  const nextRule = escalation.enabled ? escalation.rules.find((r) => r.points > summary.points) : null;
-
-  const lines = [
-    `**Użytkownik:** <@${target.id}> (\`${target.id}\`)`,
-    `**Aktywne ostrzeżenia:** ${summary.count}`,
-    `**Punkty:** **${summary.points} pkt**`,
-    `**Poziom:** ${embeds.severityBar(summary.points, scale)} \`${summary.points}/${scale}\``,
-  ];
-  if (nextRule) lines.push(`**Następny próg:** ${nextRule.points} pkt → ${describeRule(nextRule)}`);
-  if (summary.nextExpiry) lines.push(`**Najbliższe wygaśnięcie:** ${discordTimestamp(summary.nextExpiry, 'R')}`);
-  const history = Object.entries(CASE_NAMES)
-    .filter(([type]) => counts[type])
-    .map(([type, name]) => `${name}: **${counts[type]}**`);
-  if (history.length) lines.push(`**Historia kar:** ${history.join(' · ')}`);
-  if (warnConfig.expiryDays > 0) lines.push(`-# Ostrzeżenia wygasają automatycznie po ${warnConfig.expiryDays} dniach.`);
-
-  const fields = summary.warns.slice(0, 10).map((warn) => ({
-    name: `#${warn.id} • ${warn.points} pkt • ${discordTimestamp(warn.createdAt, 'd')}`,
-    value: `${warn.reason.slice(0, 200)}\n-# Moderator: <@${warn.moderatorId}> • ${
-      warn.expiresAt ? `⏳ wygasa ${discordTimestamp(warn.expiresAt, 'R')}` : '♾️ nie wygasa'
-    }`,
-  }));
-  if (summary.warns.length > 10) fields.push({ name: '…', value: `Oraz ${summary.warns.length - 10} starszych (pełna lista w panelu).` });
-  if (!summary.warns.length) fields.push({ name: 'Brak aktywnych ostrzeżeń', value: 'Ten użytkownik jest czysty. ✨' });
-
-  return {
-    color: embeds.colorInt(actions.warn.color),
-    title: `⚠️ Ostrzeżenia — ${target.username}`,
-    thumbnail: { url: avatarUrl(target) },
-    description: lines.join('\n'),
-    fields,
-    footer: { text: 'Widoczne tylko dla moderacji' },
-  };
-}
-
 const warn = {
   permission: P.MODERATE_MEMBERS,
   // "dodaj" ogłasza karę publicznie, reszta podkomend odpowiada tylko moderatorowi.
   defer: (ix) => (ix.sub === 'dodaj' ? 'action' : 'ephemeral'),
   data: {
     name: 'warn',
-    description: 'System ostrzeżeń',
+    description: '⚠️ System ostrzeżeń z punktami (znikają same po 60 dniach)',
     default_member_permissions: perm(P.MODERATE_MEMBERS),
     ...GUILD_ONLY,
     options: [
-      sub('dodaj', 'Daje użytkownikowi ostrzeżenie', [
-        user('uzytkownik', 'Kogo ostrzec', true),
-        reasonOpt('Powód ostrzeżenia'),
-        int('punkty', 'Ile punktów (domyślnie z konfiguracji)', { min_value: 1, max_value: 100 }),
+      sub('dodaj', '⚠️ Daj ostrzeżenie — ukarany dostanie wiadomość, punkty widzi tylko moderacja', [
+        user('uzytkownik', '👤 Kogo ostrzec', true),
+        reasonOpt('📝 Za co? Np. spam, obraza, offtop'),
+        int('punkty', '🔢 Ile punktów (1–100, domyślnie z panelu) — im poważniej, tym więcej', { min_value: 1, max_value: 100 }),
       ]),
-      sub('status', 'Pokazuje ostrzeżenia i punkty użytkownika (tylko dla moderacji)', [user('uzytkownik', 'Czyje ostrzeżenia', true)]),
-      sub('usun', 'Usuwa jedno ostrzeżenie po numerze', [
-        int('numer', 'Numer ostrzeżenia (#)', { required: true, min_value: 1 }),
-        reasonOpt('Dlaczego usuwasz', false),
+      sub('status', '📋 Ostrzeżenia, punkty i odliczanie do wygaśnięcia (strony ◀ 1 2 3 ▶)', [
+        user('uzytkownik', '👤 Czyje ostrzeżenia pokazać', true),
       ]),
-      sub('wyczysc', 'Usuwa wszystkie ostrzeżenia użytkownika', [user('uzytkownik', 'Czyje ostrzeżenia wyczyścić', true)]),
-      sub('ranking', 'Użytkownicy z największą liczbą punktów'),
+      sub('usun', '🗑️ Wybierz osobę — pokażę jej ostrzeżenia do usunięcia z listy', [
+        user('uzytkownik', '👤 Czyje ostrzeżenia usuwasz', true),
+        int('numer', '#️⃣ Numer ostrzeżenia, jeśli znasz go od razu (opcjonalnie)', { min_value: 1 }),
+      ]),
+      sub('wyczysc', '🧹 Usuń od razu WSZYSTKIE ostrzeżenia tej osoby', [user('uzytkownik', '👤 Czyje ostrzeżenia wyczyścić', true)]),
+      sub('ranking', '📊 Kto ma najwięcej punktów, czyli kto najbardziej przegina'),
     ],
   },
   async execute(ix, bot) {
@@ -273,38 +232,18 @@ const warn = {
       });
     }
 
-    if (ix.sub === 'status') {
-      const target = ix.getUser('uzytkownik');
-      return ix.edit({ embeds: [await warnStatusEmbed(bot, target)] });
-    }
+    if (ix.sub === 'status') return ix.edit(await renderView(bot, 'ws', ix.getUser('uzytkownik').id, 1));
 
     if (ix.sub === 'usun') {
+      const target = ix.getUser('uzytkownik');
+      let note = null;
       const id = ix.opt('numer');
-      const removed = await store.removeWarn(id);
-      if (!removed) throw new ReplyError(`Nie ma aktywnego ostrzeżenia **#${id}**.`);
-      const reason = ix.opt('powod') ?? 'Nie podano powodu';
-      if (removed.caseId) await store.updateCase(removed.caseId, { note: `Ostrzeżenie usunięte przez ${ix.user.username}: ${reason}` });
-      const left = await store.warnSummary(removed.userId);
-      await sendModLog(bot, config, {
-        embeds: [
-          embeds.simpleEmbed(
-            'success',
-            `🗑️ Usunięto ostrzeżenie #${removed.id}`,
-            [
-              `**Użytkownik:** <@${removed.userId}>`,
-              `**Usunął:** <@${ix.user.id}>`,
-              `**Powód usunięcia:** ${reason}`,
-              `**Treść ostrzeżenia:** ${removed.reason} (${removed.points} pkt)`,
-              `**Pozostało:** ${left.count} ostrzeżeń (${left.points} pkt)`,
-            ].join('\n'),
-          ),
-        ],
-      });
-      return ix.edit({
-        embeds: [
-          embeds.successEmbed(`Usunięto ostrzeżenie **#${removed.id}** użytkownika <@${removed.userId}> (-${removed.points} pkt).\nPozostało: **${left.points} pkt**.`),
-        ],
-      });
+      if (id) {
+        const found = (await store.getWarns(target.id)).find((w) => w.id === id);
+        if (!found) throw new ReplyError(`<@${target.id}> nie ma aktywnego ostrzeżenia **#${id}**.`);
+        note = await VIEWS.wd.onSelect(bot, ix, target.id, [String(id)]);
+      }
+      return ix.edit(await renderView(bot, 'wd', target.id, 1, { note }));
     }
 
     if (ix.sub === 'wyczysc') {
@@ -322,79 +261,67 @@ const warn = {
           ),
         ],
       });
-      return ix.edit({ embeds: [embeds.successEmbed(`Usunięto **${removed.length}** ostrzeżeń (${points} pkt) użytkownika <@${target.id}>.`)] });
+      return ix.edit(await renderView(bot, 'ws', target.id, 1, { note: `🧹 Usunięto **${removed.length}** ostrzeżeń (${points} pkt).` }));
     }
 
-    // ranking
-    const rows = (await store.warnRanking()).slice(0, 15);
-    const description = rows.length
-      ? rows
-          .map((row, i) => {
-            const next = row.warns.map((w) => w.expiresAt).filter(Boolean).sort((a, b) => a - b)[0];
-            const expiry = next ? ` • najbliższe wygasa ${discordTimestamp(next, 'R')}` : '';
-            return `**${i + 1}.** <@${row.userId}> — **${row.points} pkt** (${row.count} ostrz.)${expiry}`;
-          })
-          .join('\n')
-      : 'Nikt nie ma aktywnych ostrzeżeń. 🎉';
-    return ix.edit({ embeds: [{ ...embeds.simpleEmbed('warning', '📊 Ranking ostrzeżeń', description), footer: { text: 'Widoczne tylko dla moderacji' } }] });
+    return ix.edit(await renderView(bot, 'r', '-', 1));
   },
 };
 
-// ---------- Historia i sprawy ----------
-function caseLabel(entry) {
-  return entry.type === 'ban' && entry.duration ? 'Tymczasowy ban' : embeds.ACTION_LABELS[entry.type];
-}
-
+// ---------- Historia, sprawy, notatki ----------
 const historia = {
   permission: P.MODERATE_MEMBERS,
   defer: 'ephemeral',
   data: {
     name: 'historia',
-    description: 'Pełna historia kar użytkownika (tylko dla moderacji)',
+    description: '📜 Wszystkie kary danej osoby — bany, kicki, timeouty, ostrzeżenia (strony ◀ 1 2 3 ▶)',
     default_member_permissions: perm(P.MODERATE_MEMBERS),
     ...GUILD_ONLY,
-    options: [user('uzytkownik', 'Czyja historia', true)],
+    options: [user('uzytkownik', '👤 Czyją historię pokazać', true)],
   },
-  async execute(ix, bot) {
-    const target = ix.getUser('uzytkownik');
-    const { total, items } = await bot.store.listCases({ userId: target.id, limit: 12 });
-    let description =
-      items
-        .map((c) => {
-          const duration = c.duration ? ` (${formatDuration(c.duration.amount, c.duration.unit)})` : '';
-          const note = c.note ? `\n-# ${c.note}` : '';
-          return `**#${c.id} ${caseLabel(c)}${duration}**${c.auto ? ' 🤖' : ''} • ${discordTimestamp(c.createdAt, 'd')} • <@${c.moderatorId}>\n> ${c.reason.slice(0, 150)}${note}`;
-        })
-        .join('\n\n') || 'Brak kar. Wzorowy użytkownik! ✨';
-    if (description.length > 4000) description = `${description.slice(0, 3990)}…`;
-    return ix.edit({
-      embeds: [
-        {
-          color: embeds.COLORS.info,
-          title: `📜 Historia — ${target.username}`,
-          description,
-          footer: { text: `Łącznie spraw: ${total}${total > items.length ? ` • pokazano ${items.length} najnowszych` : ''}` },
-        },
-      ],
-    });
-  },
+  execute: async (ix, bot) => ix.edit(await renderView(bot, 'h', ix.getUser('uzytkownik').id, 1)),
 };
 
-async function caseEmbed(bot, entry) {
-  const config = await bot.store.getConfig();
-  const lines = [
-    `**Typ:** ${caseLabel(entry)}${entry.auto ? ' (automatycznie)' : ''}`,
-    `**Użytkownik:** <@${entry.userId}> \`${entry.userTag}\` (\`${entry.userId}\`)`,
-    `**Moderator:** <@${entry.moderatorId}>`,
-    `**Powód:** ${entry.reason}`,
+const CASE_TYPE_CHOICES = [
+  { name: '⛔ Bany', value: 'ban' },
+  { name: '✅ Unbany', value: 'unban' },
+  { name: '👢 Kicki', value: 'kick' },
+  { name: '🔇 Timeouty', value: 'timeout' },
+  { name: '🔊 Zdjęte timeouty', value: 'untimeout' },
+  { name: '⚠️ Ostrzeżenia', value: 'warn' },
+];
+
+const sprawy = {
+  permission: P.MODERATE_MEMBERS,
+  defer: 'ephemeral',
+  data: {
+    name: 'sprawy',
+    description: '🗂️ Ostatnie akcje moderacji na całym serwerze (strony ◀ 1 2 3 ▶)',
+    default_member_permissions: perm(P.MODERATE_MEMBERS),
+    ...GUILD_ONLY,
+    options: [str('typ', '🔎 Pokaż tylko jeden rodzaj kar (opcjonalnie)', { choices: CASE_TYPE_CHOICES })],
+  },
+  execute: async (ix, bot) => ix.edit(await renderView(bot, 'c', ix.opt('typ') ?? 'all', 1)),
+};
+
+function caseEmbed(config, entry) {
+  const label = entry.type === 'ban' && entry.duration ? 'Tymczasowy ban' : embeds.ACTION_LABELS[entry.type];
+  const fields = [
+    { name: '👤 Użytkownik', value: `<@${entry.userId}>\n\`${entry.userTag}\``, inline: true },
+    { name: '🛡️ Moderator', value: `<@${entry.moderatorId}>${entry.auto ? '\n`🤖 automatycznie`' : ''}`, inline: true },
+    { name: '🗓️ Data', value: stamp(entry.createdAt), inline: true },
   ];
-  if (entry.duration) lines.push(`**Czas:** ${formatDuration(entry.duration.amount, entry.duration.unit)}`);
-  if (entry.expiresAt) lines.push(`**Wygasa:** ${discordTimestamp(entry.expiresAt, 'f')} (${discordTimestamp(entry.expiresAt, 'R')})`);
-  lines.push(`**Data:** ${discordTimestamp(entry.createdAt, 'f')}`);
-  if (entry.dmStatus) lines.push(`**DM:** ${entry.dmStatus}`);
-  if (entry.note) lines.push(`**Notatka:** ${entry.note}`);
-  if (entry.messageUrl) lines.push(`**Wiadomość:** [przejdź](${entry.messageUrl})`);
-  return { color: embeds.colorInt(config.actions[entry.type]?.color), title: `🗂️ Sprawa #${entry.id}`, description: lines.join('\n') };
+  if (entry.expiresAt) fields.push({ name: '📅 Wygasa', value: stamp(entry.expiresAt), inline: true });
+  if (entry.dmStatus) fields.push({ name: '✉️ DM', value: entry.dmStatus, inline: true });
+  fields.push({ name: '📝 Powód', value: embeds.reasonBlock(entry.reason) });
+  if (entry.note) fields.push({ name: '📌 Notatka', value: entry.note });
+  if (entry.messageUrl) fields.push({ name: '🔗 Wiadomość', value: `[Przejdź do ogłoszenia](${entry.messageUrl})` });
+  return {
+    color: embeds.colorInt(config.actions[entry.type]?.color),
+    title: `🗂️ Sprawa #${entry.id} • ${label}`,
+    fields,
+    footer: { text: embeds.BRAND },
+  };
 }
 
 const sprawa = {
@@ -402,27 +329,28 @@ const sprawa = {
   defer: 'ephemeral',
   data: {
     name: 'sprawa',
-    description: 'Podgląd i edycja spraw moderacyjnych',
+    description: '🗂️ Podgląd i edycja pojedynczej sprawy moderacyjnej',
     default_member_permissions: perm(P.MODERATE_MEMBERS),
     ...GUILD_ONLY,
     options: [
-      sub('pokaz', 'Pokazuje szczegóły sprawy', [int('numer', 'Numer sprawy', { required: true, min_value: 1 })]),
-      sub('powod', 'Zmienia powód w sprawie', [
-        int('numer', 'Numer sprawy', { required: true, min_value: 1 }),
-        str('nowy_powod', 'Nowy powód', { required: true, max_length: 500 }),
+      sub('pokaz', '🔎 Pokaż szczegóły sprawy', [int('numer', '#️⃣ Numer sprawy (widać go w stopce embeda)', { required: true, min_value: 1 })]),
+      sub('powod', '✏️ Popraw powód w sprawie', [
+        int('numer', '#️⃣ Numer sprawy do poprawienia', { required: true, min_value: 1 }),
+        str('nowy_powod', '📝 Nowy, poprawiony powód', { required: true, max_length: 500 }),
       ]),
     ],
   },
   async execute(ix, bot) {
+    const config = await bot.store.getConfig();
     const id = ix.opt('numer');
     const entry = await bot.store.getCase(id);
     if (!entry) throw new ReplyError(`Nie ma sprawy **#${id}**.`);
-    if (ix.sub === 'pokaz') return ix.edit({ embeds: [await caseEmbed(bot, entry)] });
+    if (ix.sub === 'pokaz') return ix.edit({ embeds: [caseEmbed(config, entry)] });
 
     const newReason = ix.opt('nowy_powod');
     const updated = await bot.store.updateCase(id, { reason: newReason });
     if (entry.type === 'warn') await bot.store.updateWarnByCase(id, { reason: newReason });
-    await sendModLog(bot, await bot.store.getConfig(), {
+    await sendModLog(bot, config, {
       embeds: [
         {
           ...embeds.successEmbed(`**Sprawa #${id}** — zmieniono powód\n**Było:** ${entry.reason}\n**Jest:** ${newReason}\n**Zmienił:** <@${ix.user.id}>`),
@@ -430,7 +358,320 @@ const sprawa = {
         },
       ],
     });
-    return ix.edit({ embeds: [await caseEmbed(bot, updated)] });
+    return ix.edit({ embeds: [caseEmbed(config, updated)] });
+  },
+};
+
+const notatka = {
+  permission: P.MODERATE_MEMBERS,
+  defer: 'ephemeral',
+  data: {
+    name: 'notatka',
+    description: '📌 Prywatne notatki moderacji o użytkownikach (np. „podejrzany o multikonto”)',
+    default_member_permissions: perm(P.MODERATE_MEMBERS),
+    ...GUILD_ONLY,
+    options: [
+      sub('dodaj', '📌 Dodaj notatkę — widzi ją tylko moderacja', [
+        user('uzytkownik', '👤 Kogo dotyczy notatka', true),
+        str('tresc', '✍️ Treść notatki', { required: true, max_length: 1000 }),
+      ]),
+      sub('lista', '📋 Notatki o osobie (strony ◀ 1 2 3 ▶, usuwanie z listy)', [user('uzytkownik', '👤 Czyje notatki pokazać', true)]),
+    ],
+  },
+  async execute(ix, bot) {
+    const target = ix.getUser('uzytkownik');
+    if (ix.sub === 'dodaj') {
+      const note = await bot.store.addNote({
+        guildId: ix.guildId,
+        userId: target.id,
+        userTag: target.username,
+        authorId: ix.user.id,
+        authorTag: ix.user.username,
+        text: ix.opt('tresc'),
+      });
+      return ix.edit(await renderView(bot, 'n', target.id, 1, { note: `✅ Dodano notatkę **#${note.id}**.` }));
+    }
+    return ix.edit(await renderView(bot, 'n', target.id, 1));
+  },
+};
+
+// ---------- Informacje ----------
+const info = {
+  permission: P.MODERATE_MEMBERS,
+  defer: 'ephemeral',
+  data: {
+    name: 'info',
+    description: '📇 Karta użytkownika: konto, role, kary, ostrzeżenia i notatki (tylko dla moderacji)',
+    default_member_permissions: perm(P.MODERATE_MEMBERS),
+    ...GUILD_ONLY,
+    options: [user('uzytkownik', '👤 O kim pokazać informacje', true)],
+  },
+  async execute(ix, bot) {
+    const target = ix.getUser('uzytkownik');
+    const member = ix.getMember('uzytkownik');
+    const [summary, counts, notes] = await Promise.all([
+      bot.store.warnSummary(target.id),
+      bot.store.caseCounts(target.id),
+      bot.store.listNotes(target.id),
+    ]);
+    const roles = (member?.roles ?? []).map((id) => `<@&${id}>`);
+    const fields = [
+      { name: '🆔 ID', value: `\`${target.id}\``, inline: true },
+      { name: '📅 Konto założone', value: stamp(snowflakeTime(target.id)), inline: true },
+      { name: '📥 Na serwerze od', value: member?.joined_at ? stamp(new Date(member.joined_at).getTime()) : '— (nie ma go na serwerze)', inline: true },
+      { name: '⚠️ Ostrzeżenia', value: `**${summary.count}** (${summary.points} pkt)`, inline: true },
+      {
+        name: '🗂️ Kary',
+        value: `⛔ ${counts.ban ?? 0} • 👢 ${counts.kick ?? 0} • 🔇 ${counts.timeout ?? 0}`,
+        inline: true,
+      },
+      { name: '📌 Notatki', value: `**${notes.length}**`, inline: true },
+    ];
+    const until = member?.communication_disabled_until ? new Date(member.communication_disabled_until).getTime() : 0;
+    if (until > Date.now()) fields.push({ name: '🔇 Wyciszony do', value: stamp(until), inline: true });
+    fields.push({ name: `🎭 Role (${roles.length})`, value: roles.slice(0, 20).join(' ') || 'brak' });
+
+    const button = (label, kind, emoji) => ({ type: 2, style: 2, label, emoji: { name: emoji }, custom_id: `pg|${kind}|${target.id}|1|i` });
+    return ix.edit({
+      embeds: [
+        {
+          color: embeds.COLORS.info,
+          author: { name: `${target.global_name ?? target.username} • Karta użytkownika`, icon_url: avatarUrl(target, 64) },
+          description: `<@${target.id}> • \`${target.username}\`${target.bot ? ' • 🤖 bot' : ''}`,
+          thumbnail: { url: avatarUrl(target, 256) },
+          fields,
+          footer: { text: embeds.BRAND },
+        },
+      ],
+      components: [
+        {
+          type: 1,
+          components: [button('Ostrzeżenia', 'ws', '⚠️'), button('Historia kar', 'h', '📜'), button('Notatki', 'n', '📌')],
+        },
+      ],
+    });
+  },
+};
+
+const VERIFICATION = ['brak', 'niski', 'średni', 'wysoki', 'najwyższy'];
+
+const serwer = {
+  permission: null,
+  defer: 'ephemeral',
+  data: { name: 'serwer', description: '🏠 Informacje o serwerze Entuzjaści Hopkostki', ...GUILD_ONLY },
+  async execute(ix, bot) {
+    const [guild, channels] = await Promise.all([
+      bot.discord.get(`/guilds/${ix.guildId}`, { query: { with_counts: true } }),
+      bot.discord.get(`/guilds/${ix.guildId}/channels`),
+    ]);
+    const count = (types) => channels.filter((c) => types.includes(c.type)).length;
+    const icon = guildIconUrl(guild, 256);
+    // Statystyki moderacji widzi tylko moderacja.
+    const isMod = hasModAccess(ix.member, P.MODERATE_MEMBERS, await bot.store.getConfig());
+    const stats = isMod ? await bot.store.stats() : null;
+    const embed = {
+      color: embeds.COLORS.info,
+      title: `🏠 ${guild.name}`,
+      description: guild.description ?? 'Serwer Entuzjastów Hopkostki 🫓',
+      fields: [
+        { name: '👑 Właściciel', value: `<@${guild.owner_id}>`, inline: true },
+        { name: '📅 Założony', value: stamp(snowflakeTime(guild.id)), inline: true },
+        { name: '👥 Członkowie', value: `**${guild.approximate_member_count ?? '?'}** (🟢 ${guild.approximate_presence_count ?? '?'} online)`, inline: true },
+        { name: '💬 Kanały', value: `# ${count([0, 5, 15])} tekstowych • 🔊 ${count([2, 13])} głosowych`, inline: true },
+        { name: '🎭 Role', value: `**${(guild.roles ?? []).length}**`, inline: true },
+        { name: '🚀 Boosty', value: `**${guild.premium_subscription_count ?? 0}** (poziom ${guild.premium_tier ?? 0})`, inline: true },
+        { name: '🛡️ Weryfikacja', value: VERIFICATION[guild.verification_level] ?? '?', inline: true },
+        ...(stats
+          ? [
+              { name: '🗂️ Sprawy moderacji', value: `**${stats.cases}**`, inline: true },
+              { name: '⚠️ Aktywne ostrzeżenia', value: `**${stats.activeWarns}**`, inline: true },
+            ]
+          : []),
+      ],
+      footer: { text: `ID: ${guild.id} • ${embeds.BRAND}` },
+    };
+    if (icon) embed.thumbnail = { url: icon };
+    return ix.edit({ embeds: [embed] });
+  },
+};
+
+const avatar = {
+  permission: null,
+  defer: 'public',
+  data: {
+    name: 'avatar',
+    description: '🖼️ Pokaż awatar w dużym rozmiarze',
+    ...GUILD_ONLY,
+    options: [user('uzytkownik', '👤 Czyj awatar pokazać (puste = Twój)')],
+  },
+  async execute(ix) {
+    const target = ix.getUser('uzytkownik') ?? ix.user;
+    const base = avatarUrl(target, 1024);
+    const links = target.avatar
+      ? ['png', 'webp', 'jpg'].map((ext) => `[${ext.toUpperCase()}](${base.replace(/\.png\?/, `.${ext}?`)})`).join(' • ')
+      : '[PNG](' + base + ')';
+    return ix.edit({
+      embeds: [
+        {
+          color: embeds.COLORS.info,
+          author: { name: `Awatar — ${target.global_name ?? target.username}`, icon_url: avatarUrl(target, 64) },
+          description: `🔗 ${links}`,
+          image: { url: base },
+          footer: { text: embeds.BRAND },
+        },
+      ],
+    });
+  },
+};
+
+// ---------- Zarządzanie członkami ----------
+const nick = {
+  permission: P.MANAGE_NICKNAMES,
+  defer: 'ephemeral',
+  data: {
+    name: 'nick',
+    description: '✏️ Zmień albo zresetuj pseudonim użytkownika na serwerze',
+    default_member_permissions: perm(P.MANAGE_NICKNAMES),
+    ...GUILD_ONLY,
+    options: [
+      user('uzytkownik', '👤 Komu zmienić pseudonim', true),
+      str('nowy_nick', '🏷️ Nowy pseudonim (puste = przywróć oryginalną nazwę)', { max_length: 32 }),
+    ],
+  },
+  async execute(ix, bot) {
+    const { target } = await ensureTarget(ix, bot, 'nick');
+    const nickname = ix.opt('nowy_nick') ?? null;
+    await bot.discord.patch(`/guilds/${ix.guildId}/members/${target.id}`, { nick: nickname }, { reason: `Nick: ${ix.user.username}` });
+    await sendModLog(bot, await bot.store.getConfig(), {
+      embeds: [
+        embeds.simpleEmbed('info', '✏️ Zmiana pseudonimu', `**Użytkownik:** <@${target.id}>\n**Nowy:** ${nickname ? `\`${nickname}\`` : '*(reset)*'}\n**Moderator:** <@${ix.user.id}>`),
+      ],
+    });
+    return ix.edit({ embeds: [embeds.successEmbed(nickname ? `<@${target.id}> ma teraz pseudonim **${nickname}**.` : `Zresetowano pseudonim <@${target.id}>.`)] });
+  },
+};
+
+const rola = {
+  permission: P.MANAGE_ROLES,
+  defer: 'ephemeral',
+  data: {
+    name: 'rola',
+    description: '🎭 Nadaj albo odbierz rolę użytkownikowi',
+    default_member_permissions: perm(P.MANAGE_ROLES),
+    ...GUILD_ONLY,
+    options: [
+      sub('dodaj', '➕ Nadaj rolę', [
+        user('uzytkownik', '👤 Komu nadać rolę', true),
+        { type: T.ROLE, name: 'rola', description: '🎭 Jaką rolę nadać', required: true },
+      ]),
+      sub('usun', '➖ Odbierz rolę', [
+        user('uzytkownik', '👤 Komu odebrać rolę', true),
+        { type: T.ROLE, name: 'rola', description: '🎭 Jaką rolę odebrać', required: true },
+      ]),
+    ],
+  },
+  async execute(ix, bot) {
+    const target = ix.getUser('uzytkownik');
+    const member = ix.getMember('uzytkownik');
+    if (!member) throw new ReplyError('Tego użytkownika nie ma na serwerze.');
+    const roleId = ix.opt('rola');
+    const gctx = await getGuildContext(bot);
+    const role = gctx.roles.get(roleId);
+    if (!role || role.id === ix.guildId) throw new ReplyError('Tej roli nie można nadać.');
+    if (role.managed) throw new ReplyError('Tą rolą zarządza integracja (np. bot) — nie da się jej nadać ręcznie.');
+    if (highestPosition(gctx.botMember.roles, gctx.roles) <= role.position) {
+      throw new ReplyError('Ta rola jest wyżej niż moja — przesuń moją rolę wyżej w ustawieniach serwera.');
+    }
+    if (ix.member.id !== gctx.guild.ownerId && highestPosition(ix.member.roles, gctx.roles) <= role.position) {
+      throw new ReplyError('Ta rola jest równa lub wyższa od Twojej najwyższej roli.');
+    }
+    const adding = ix.sub === 'dodaj';
+    if (adding && member.roles.includes(roleId)) throw new ReplyError(`<@${target.id}> ma już rolę <@&${roleId}>.`);
+    if (!adding && !member.roles.includes(roleId)) throw new ReplyError(`<@${target.id}> nie ma roli <@&${roleId}>.`);
+
+    const path = `/guilds/${ix.guildId}/members/${target.id}/roles/${roleId}`;
+    const reason = `${adding ? 'Nadanie' : 'Odebranie'} roli: ${ix.user.username}`;
+    if (adding) await bot.discord.put(path, undefined, { reason });
+    else await bot.discord.delete(path, { reason });
+
+    await sendModLog(bot, await bot.store.getConfig(), {
+      embeds: [
+        embeds.simpleEmbed(
+          'info',
+          adding ? '➕ Nadano rolę' : '➖ Odebrano rolę',
+          `**Użytkownik:** <@${target.id}>\n**Rola:** <@&${roleId}>\n**Moderator:** <@${ix.user.id}>`,
+        ),
+      ],
+    });
+    return ix.edit({ embeds: [embeds.successEmbed(`${adding ? 'Nadano' : 'Odebrano'} rolę <@&${roleId}> ${adding ? 'dla' : 'od'} <@${target.id}>.`)] });
+  },
+};
+
+// ---------- Ogłoszenia ----------
+const ANNOUNCE_COLORS = [
+  { name: '💙 Niebieski', value: '#5865F2' },
+  { name: '💚 Zielony', value: '#57F287' },
+  { name: '💛 Żółty', value: '#FEE75C' },
+  { name: '🧡 Pomarańczowy', value: '#F0883E' },
+  { name: '❤️ Czerwony', value: '#ED4245' },
+  { name: '💜 Fioletowy', value: '#9B59B6' },
+];
+
+const ogloszenie = {
+  permission: P.MANAGE_MESSAGES,
+  defer: 'ephemeral',
+  data: {
+    name: 'ogloszenie',
+    description: '📢 Wyślij ładne ogłoszenie w embedzie (nowa linia: wpisz \\n)',
+    default_member_permissions: perm(P.MANAGE_MESSAGES),
+    ...GUILD_ONLY,
+    options: [
+      str('tytul', '🏷️ Tytuł ogłoszenia', { required: true, max_length: 200 }),
+      str('tresc', '📝 Treść — nową linię zrobisz wpisując \\n', { required: true, max_length: 4000 }),
+      str('kolor', '🎨 Kolor paska z boku embeda', { choices: ANNOUNCE_COLORS }),
+      channelOpt('📢 Gdzie wysłać (domyślnie ten kanał)', [CH.TEXT, CH.ANNOUNCEMENT]),
+      str('oznacz', '🔔 Kogo powiadomić', {
+        choices: [
+          { name: '🔕 Nikogo', value: 'none' },
+          { name: '📣 @everyone', value: 'everyone' },
+          { name: '🟢 @here', value: 'here' },
+        ],
+      }),
+      str('obrazek', '🖼️ Link do obrazka (https://…) pod ogłoszeniem', { max_length: 500 }),
+    ],
+  },
+  async execute(ix, bot) {
+    const channelId = ix.opt('kanal') ?? ix.channelId;
+    const ping = ix.opt('oznacz') ?? 'none';
+    const image = ix.opt('obrazek');
+    if (image && !/^https:\/\/\S+$/i.test(image)) throw new ReplyError('Link do obrazka musi zaczynać się od https://');
+    // Bot nie może pozwolić oznaczyć @everyone ani pisać tam, gdzie moderator sam nie może.
+    if (ping !== 'none' && !has(ix.member.permissions, P.MENTION_EVERYONE)) {
+      throw new ReplyError('Nie masz uprawnienia do oznaczania @everyone i @here.');
+    }
+    const picked = ix.raw.data?.resolved?.channels?.[channelId];
+    if (picked?.permissions && !has(picked.permissions, P.VIEW_CHANNEL | P.SEND_MESSAGES)) {
+      throw new ReplyError(`Nie możesz pisać na <#${channelId}>.`);
+    }
+    const { guild } = await getGuildContext(bot);
+    const icon = guildIconUrl(guild);
+    const embed = {
+      color: embeds.colorInt(ix.opt('kolor') ?? '#5865F2'),
+      author: icon ? { name: `📢 ${guild.name} • Ogłoszenie`, icon_url: icon } : { name: `📢 ${guild.name} • Ogłoszenie` },
+      title: ix.opt('tytul'),
+      description: String(ix.opt('tresc')).replace(/\\n/g, '\n'),
+      footer: { text: `Ogłosił(a): ${ix.user.global_name ?? ix.user.username} • ${embeds.BRAND}`, icon_url: avatarUrl(ix.user, 64) },
+      timestamp: new Date().toISOString(),
+    };
+    if (image) embed.image = { url: image };
+    const message = await bot.discord.post(`/channels/${channelId}/messages`, {
+      content: ping === 'none' ? '' : `@${ping}`,
+      embeds: [embed],
+      allowed_mentions: { parse: ping === 'none' ? [] : ['everyone'] },
+    });
+    return ix.edit({
+      embeds: [embeds.successEmbed(`Ogłoszenie wysłane na <#${channelId}> — [zobacz](https://discord.com/channels/${ix.guildId}/${channelId}/${message.id}).`)],
+    });
   },
 };
 
@@ -440,12 +681,12 @@ const clear = {
   defer: 'ephemeral',
   data: {
     name: 'clear',
-    description: 'Usuwa ostatnie wiadomości na kanale',
+    description: '🧹 Usuń ostatnie wiadomości na tym kanale (maks. 100, nie starsze niż 14 dni)',
     default_member_permissions: perm(P.MANAGE_MESSAGES),
     ...GUILD_ONLY,
     options: [
-      int('ilosc', 'Ile wiadomości sprawdzić (1–100)', { required: true, min_value: 1, max_value: 100 }),
-      user('uzytkownik', 'Usuń tylko wiadomości tej osoby'),
+      int('ilosc', '🔢 Ile ostatnich wiadomości sprawdzić (1–100)', { required: true, min_value: 1, max_value: 100 }),
+      user('uzytkownik', '👤 Usuń tylko wiadomości tej osoby (opcjonalnie)'),
     ],
   },
   async execute(ix, bot) {
@@ -484,12 +725,12 @@ const slowmode = {
   defer: 'ephemeral',
   data: {
     name: 'slowmode',
-    description: 'Ustawia tryb powolny na kanale',
+    description: '🐢 Ustaw tryb powolny — co ile sekund można pisać',
     default_member_permissions: perm(P.MANAGE_CHANNELS),
     ...GUILD_ONLY,
     options: [
-      int('sekundy', 'Odstęp między wiadomościami (0 = wyłącz, maks. 21600)', { required: true, min_value: 0, max_value: 21600 }),
-      { type: T.CHANNEL, name: 'kanal', description: 'Kanał (domyślnie obecny)', channel_types: [CH.TEXT, CH.FORUM] },
+      int('sekundy', '⏱️ Odstęp między wiadomościami w sekundach (0 = wyłącz, maks. 21600 = 6 h)', { required: true, min_value: 0, max_value: 21600 }),
+      channelOpt('💬 Na którym kanale (domyślnie ten)', [CH.TEXT, CH.FORUM]),
     ],
   },
   async execute(ix, bot) {
@@ -513,8 +754,8 @@ function lockCommand(name, description, locked) {
       default_member_permissions: perm(P.MANAGE_CHANNELS),
       ...GUILD_ONLY,
       options: [
-        { type: T.CHANNEL, name: 'kanal', description: 'Kanał (domyślnie obecny)', channel_types: [CH.TEXT, CH.ANNOUNCEMENT] },
-        reasonOpt('Powód', false),
+        channelOpt(locked ? '🔒 Który kanał zablokować (domyślnie ten)' : '🔓 Który kanał odblokować (domyślnie ten)', [CH.TEXT, CH.ANNOUNCEMENT]),
+        reasonOpt('📝 Powód (pokaże się na kanale)', false),
       ],
     },
     async execute(ix, bot) {
@@ -538,8 +779,12 @@ function lockCommand(name, description, locked) {
       );
 
       const title = locked ? '🔒 Kanał zablokowany' : '🔓 Kanał odblokowany';
-      const body = locked ? `Pisanie na tym kanale zostało tymczasowo wyłączone.\n**Powód:** ${reason}` : `Można znowu pisać na tym kanale.\n**Powód:** ${reason}`;
-      await bot.discord.post(`/channels/${channelId}/messages`, { embeds: [embeds.simpleEmbed(locked ? 'error' : 'success', title, body)] }).catch(() => {});
+      const body = locked
+        ? `Pisanie na tym kanale zostało tymczasowo wyłączone przez moderację.\n\n📝 **Powód:** ${reason}`
+        : `Można znowu pisać na tym kanale. Miłej rozmowy! 🫓\n\n📝 **Powód:** ${reason}`;
+      await bot.discord
+        .post(`/channels/${channelId}/messages`, { embeds: [{ ...embeds.simpleEmbed(locked ? 'error' : 'success', title, body), footer: { text: embeds.BRAND } }] })
+        .catch(() => {});
       await sendModLog(bot, await bot.store.getConfig(), {
         embeds: [embeds.simpleEmbed('info', title, `**Kanał:** <#${channelId}>\n**Moderator:** <@${ix.user.id}>\n**Powód:** ${reason}`)],
       });
@@ -552,7 +797,7 @@ function lockCommand(name, description, locked) {
 const pomoc = {
   permission: null,
   defer: 'ephemeral',
-  data: { name: 'pomoc', description: 'Lista komend bota moderacyjnego', ...GUILD_ONLY },
+  data: { name: 'pomoc', description: '❓ Lista wszystkich komend bota z krótkim opisem', ...GUILD_ONLY },
   async execute(ix, bot) {
     const { warns } = await bot.store.getConfig();
     return ix.edit({
@@ -560,40 +805,46 @@ const pomoc = {
         {
           color: embeds.COLORS.info,
           title: '🫓 Bot moderacyjny — Entuzjaści Hopkostki',
-          description: 'Jednostki czasu: **minuty, godziny, dni, tygodnie, miesiące** — wybierasz je z listy przy komendzie.',
+          description: 'Czas wybierasz z listy: **minuty, godziny, dni, tygodnie, miesiące**. Listy mają strony **◀ 1 2 3 ▶**.',
           fields: [
             {
               name: '🔨 Kary',
               value: [
-                '`/ban` — ban na czas lub permanentny (+ opcjonalne usuwanie wiadomości)',
-                '`/unban` — zdjęcie bana (lista zbanowanych w podpowiedziach)',
-                '`/timeout` — wyciszenie na czas (maks. 28 dni)',
-                '`/untimeout` — zdjęcie wyciszenia',
+                '`/ban` — ban na czas lub na zawsze',
+                '`/unban` — zdejmij bana (puste = lista zbanowanych)',
+                '`/timeout` · `/untimeout` — wyciszenie (maks. 28 dni)',
                 '`/kick` — wyrzucenie z serwera',
               ].join('\n'),
             },
             {
-              name: '⚠️ Ostrzeżenia (punkty widzi tylko moderacja)',
+              name: '⚠️ Ostrzeżenia',
               value: [
                 '`/warn dodaj` — ostrzeżenie z punktami',
-                '`/warn status` — ile ostrzeżeń i punktów ma osoba',
-                '`/warn usun` · `/warn wyczysc` — usuwanie ostrzeżeń',
-                '`/warn ranking` — kto najbardziej przegina',
-                warns.expiryDays > 0 ? `-# Każde ostrzeżenie wygasa samo po **${warns.expiryDays} dniach**.` : '-# Ostrzeżenia nie wygasają automatycznie.',
+                '`/warn status` — ostrzeżenia i punkty osoby',
+                '`/warn usun` — wybierz osobę i usuń z listy',
+                '`/warn wyczysc` · `/warn ranking`',
+                warns.expiryDays > 0 ? `-# Każde ostrzeżenie znika samo po **${warns.expiryDays} dniach**.` : '-# Ostrzeżenia nie wygasają.',
               ].join('\n'),
             },
             {
-              name: '🗂️ Sprawy i narzędzia',
+              name: '🗂️ Moderacja',
               value: [
-                '`/historia` — wszystkie kary użytkownika',
-                '`/sprawa pokaz` · `/sprawa powod` — podgląd / edycja sprawy',
-                '`/clear` — usuwanie wiadomości',
-                '`/slowmode` — tryb powolny',
-                '`/lock` · `/unlock` — blokada kanału',
+                '`/info` — karta użytkownika',
+                '`/historia` · `/sprawy` · `/sprawa`',
+                '`/notatka dodaj` · `/notatka lista`',
+                '`/nick` · `/rola dodaj` · `/rola usun`',
+              ].join('\n'),
+            },
+            {
+              name: '🛠️ Kanały i inne',
+              value: [
+                '`/clear` · `/slowmode` · `/lock` · `/unlock`',
+                '`/ogloszenie` — ogłoszenie w embedzie',
+                '`/serwer` · `/avatar` · `/pomoc`',
               ].join('\n'),
             },
           ],
-          footer: { text: 'Odpowiedz na wiadomość o karze, a bot doda reakcję 🫓' },
+          footer: { text: `Odpowiedz na wiadomość o karze, a bot doda reakcję 🫓 • ${embeds.BRAND}` },
         },
       ],
     });
@@ -608,13 +859,29 @@ export const COMMANDS = [
   untimeout,
   warn,
   historia,
+  sprawy,
   sprawa,
+  notatka,
+  info,
+  serwer,
+  avatar,
+  nick,
+  rola,
+  ogloszenie,
   clear,
   slowmode,
-  lockCommand('lock', 'Blokuje pisanie na kanale', true),
-  lockCommand('unlock', 'Odblokowuje pisanie na kanale', false),
+  lockCommand('lock', '🔒 Zablokuj pisanie na kanale (np. podczas kłótni)', true),
+  lockCommand('unlock', '🔓 Odblokuj pisanie na kanale', false),
   pomoc,
 ];
 
 export const COMMAND_MAP = new Map(COMMANDS.map((c) => [c.data.name, c]));
 export const commandDefinitions = () => COMMANDS.map((c) => c.data);
+
+// Metadane do panelu (zakładka "Uprawnienia") — nazwa, opis i domyślny wymóg uprawnień każdej komendy.
+export const COMMAND_META = COMMANDS.map((c) => ({
+  name: c.data.name,
+  description: c.data.description,
+  permission: c.permission ? String(c.permission) : null,
+  permissionLabel: permissionLabel(c.permission),
+}));

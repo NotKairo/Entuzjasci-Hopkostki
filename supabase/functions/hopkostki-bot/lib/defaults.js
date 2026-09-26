@@ -1,4 +1,4 @@
-// Domyślna konfiguracja bota. Wszystko poniżej można zmienić w panelu (http://localhost:3000).
+// Domyślna konfiguracja bota. Wszystko poniżej można zmienić w panelu (…/functions/v1/hopkostki-bot/panel/).
 // Zapisana konfiguracja jest scalana z tymi wartościami, więc nowe opcje pojawiają się automatycznie.
 
 export const ACTIONS = ['ban', 'unban', 'kick', 'timeout', 'untimeout', 'warn'];
@@ -10,6 +10,11 @@ export const DEFAULT_CONFIG = {
   announceChannelId: '',
   // Role, które mogą używać komend moderacyjnych (oprócz osób z odpowiednimi uprawnieniami Discorda).
   modRoleIds: [],
+  // Nadpisania dostępu dla POJEDYNCZYCH komend (panel → Uprawnienia): { nazwaKomendy: ['idRoli', ...] }.
+  // Gdy komenda ma tu wpis, liczy się TYLKO ta lista ról (plus administratorzy) — niezależnie od
+  // uprawnień Discorda i modRoleIds powyżej. Brak wpisu = zasady domyślne. null = obiekt dynamiczny,
+  // scalany/sanitizowany specjalnie (patrz configSchema.js), nie strukturą jak zwykłe pola.
+  commandPermissions: null,
 
   // Oznaczanie ukaranego użytkownika w wiadomości na kanale.
   mentionTarget: true,
@@ -34,6 +39,21 @@ export const DEFAULT_CONFIG = {
     expiryDays: 60,
     // Czy pokazywać punkty użytkownikowi (kanał + DM). Domyślnie punkty widzi tylko moderacja.
     showPointsToUser: false,
+  },
+
+  // Status bota na liście członków. Teksty rotują co rotateSeconds sekund.
+  // type: custom (własny status) | playing (Gra w) | listening (Słucha) | watching (Ogląda) | competing (Rywalizuje w)
+  // Zmienne: {czlonkowie} {online} {serwer} {ostrzezenia} {sprawy}
+  presence: {
+    enabled: true,
+    status: 'online',
+    rotateSeconds: 30,
+    activities: [
+      { type: 'custom', text: '🫓 Pilnuję porządku na Hopkostkach' },
+      { type: 'watching', text: '{czlonkowie} Entuzjastów Hopkostki' },
+      { type: 'custom', text: '🟢 {online} osób online • wpisz /pomoc' },
+      { type: 'playing', text: '/pomoc • moderacja 24/7' },
+    ],
   },
 
   // Automatyczne kary po przekroczeniu progu aktywnych punktów ostrzeżeń.

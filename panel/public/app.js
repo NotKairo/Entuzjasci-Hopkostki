@@ -18,8 +18,11 @@ const UNIT_FORMS = {
 const UNIT_LABELS = { m: 'Minuty', h: 'Godziny', d: 'Dni', w: 'Tygodnie', mo: 'Miesiące' };
 const RULE_ACTIONS = { alert: 'Alert 🔔', timeout: 'Timeout', kick: 'Kick', ban: 'Ban' };
 const PLACEHOLDERS = ['{uzytkownik}', '{nick}', '{moderator}', '{moderatorNick}', '{powod}', '{czas}', '{serwer}', '{sprawa}', '{typ}'];
+const ACTIVITY_LABELS = { custom: '💬 Własny opis', playing: '🎮 Gra w', listening: '🎧 Słucha', watching: '📺 Ogląda', competing: '🏆 Rywalizuje w' };
+const PRESENCE_PLACEHOLDERS = ['{czlonkowie}', '{online}', '{serwer}', '{ostrzezenia}', '{sprawy}'];
 const EMOJI_PICKS = ['🫓', '🍞', '👀', '✅', '🔥', '💀', '🫡', '😂'];
-const VIEWS = ['pulpit', 'ustawienia', 'embedy', 'ostrzezenia', 'sprawy', 'bany'];
+const VIEWS = ['pulpit', 'ustawienia', 'uprawnienia', 'embedy', 'ostrzezenia', 'sprawy', 'bany'];
+const PANEL_PASSWORD_KEY = 'hopkostki-panel-password';
 const SAMPLE = { targetId: '111', target: 'hurownik_og', modId: '222', mod: 'dfgbh65', reason: 'Wielokrotne łamanie zasad' };
 
 const state = {
@@ -35,6 +38,8 @@ const state = {
   warnUsers: [],
   openWarnUsers: new Set(),
   reloadPending: false,
+  commandMeta: null,
+  lastActivityInput: null,
 };
 
 // ---------- Narzędzia ----------
@@ -88,15 +93,43 @@ function formatCountdown(ms) {
   return `${d ? `${d} ${plural(d, UNIT_FORMS.d)} ` : ''}${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
+// Hasło żyje tylko w tej karcie (sessionStorage) — panel jest hostowany razem z botem na Supabase,
+// więc wywołania idą tym samym originem; dlatego ścieżka jest WZGLĘDNA (bez wiodącego "/"): dzięki temu
+// działa niezależnie od tego, pod jakim prefiksem funkcja jest zamontowana (…/hopkostki-bot/panel/…).
+function getPanelPassword() {
+  try {
+    return sessionStorage.getItem(PANEL_PASSWORD_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+function setPanelPassword(value) {
+  try {
+    sessionStorage.setItem(PANEL_PASSWORD_KEY, value);
+  } catch {
+    /* prywatna karta / zablokowany storage — hasło trzeba będzie wpisać ponownie po odświeżeniu */
+  }
+}
+function clearPanelPassword() {
+  try {
+    sessionStorage.removeItem(PANEL_PASSWORD_KEY);
+  } catch {}
+}
+
 async function api(path, options = {}) {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(path.replace(/^\/+/, ''), {
     ...options,
-    headers: { 'Content-Type': 'application/json', 'X-Panel': '1', ...(options.headers ?? {}) },
+    headers: { 'Content-Type': 'application/json', 'x-panel-password': getPanelPassword(), ...(options.headers ?? {}) },
   });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    clearPanelPassword();
+    showLoginGate(data.error || 'Złe hasło panelu.');
+    throw new Error(data.error || 'Wymagane logowanie.');
+  }
   if (!res.ok) {
     const message = data.error || `Błąd ${res.status}`;
-    if ([401, 500, 502, 503].includes(res.status)) showConnectionError(message);
+    if ([500, 502, 503].includes(res.status)) showConnectionError(message);
     throw new Error(message);
   }
   hideConnectionError();
@@ -122,14 +155,57 @@ function hideConnectionError() {
   $('#conn-error').classList.add('hidden');
 }
 
+// ---------- Logowanie ----------
+function showLoginGate(message) {
+  const gate = $('#login-gate');
+  const wasHidden = gate.classList.contains('hidden');
+  gate.classList.remove('hidden');
+  $('#app').classList.add('hidden');
+  if (message) $('#login-error').textContent = message;
+  if (wasHidden) {
+    $('#login-password').value = '';
+    $('#login-password').focus();
+  }
+}
+function revealApp() {
+  $('#login-gate').classList.add('hidden');
+  $('#app').classList.remove('hidden');
+  $('#login-error').textContent = '';
+}
+
+$('#login-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  setPanelPassword($('#login-password').value);
+  $('#login-submit').disabled = true;
+  try {
+    await api('/status'); // samo wywołanie sprawdza, czy hasło jest poprawne
+    await init();
+  } catch (error) {
+    $('#login-error').textContent = error.message;
+  } finally {
+    $('#login-submit').disabled = false;
+  }
+});
+
+$('#logout-btn').addEventListener('click', () => {
+  clearPanelPassword();
+  showLoginGate();
+});
+
 // ---------- Start ----------
 let started = false;
 async function start() {
-  const [{ config, defaults }, guild] = await Promise.all([api('/config'), api('/guild').catch(() => ({ channels: [], roles: [] }))]);
+  const [{ config, defaults }, guild, { commands }] = await Promise.all([
+    api('/config'),
+    api('/guild').catch(() => ({ channels: [], roles: [] })),
+    api('/commands').catch(() => ({ commands: [] })),
+  ]);
   state.config = config;
   state.draft = clone(config);
   state.defaults = defaults;
   state.guild = guild;
+  state.commandMeta = commands;
+  revealApp();
   renderConfigUi();
   route();
   if (!started) {
@@ -144,9 +220,17 @@ async function init() {
   try {
     await start();
   } catch (error) {
-    showConnectionError(error.message);
-    setTimeout(init, 10_000);
+    // Hasło zostało już wyczyszczone i pokazany ekran logowania przez api() — nie ma sensu tu dobijać.
+    if (getPanelPassword()) {
+      showConnectionError(error.message);
+      setTimeout(init, 10_000);
+    }
   }
+}
+
+function boot() {
+  if (getPanelPassword()) init();
+  else showLoginGate();
 }
 
 // ---------- Nawigacja ----------
@@ -160,6 +244,7 @@ function route() {
   if (state.view === 'sprawy') loadCases();
   if (state.view === 'bany') loadBans();
   if (state.view === 'embedy') renderPreview();
+  if (state.view === 'uprawnienia') renderPermissions();
 }
 window.addEventListener('hashchange', route);
 
@@ -201,6 +286,7 @@ async function refreshStatus() {
     ? `Ostatnie zadania okresowe: ${lastCron ? relTime(lastCron) : 'jeszcze nie było'}`
     : status.error ?? 'Sprawdź sekrety w Supabase.';
   renderSetup(status);
+  renderGatewayLine(status.gateway);
 
   const s = status.stats;
   const cards = [
@@ -221,9 +307,13 @@ async function refreshStatus() {
     state.guild = await api('/guild');
     renderChannelSelects();
     renderRoles();
+    if (state.view === 'uprawnienia') renderPermissions();
   }
   if (state.view === 'embedy') renderPreview();
+  renderPasswordStatus(status);
 }
+
+const gatewayOk = (gateway) => Boolean(gateway?.startedAt && !gateway.error && Date.now() - gateway.startedAt < 3 * MINUTE);
 
 function renderSetup(status) {
   const setup = status.setup ?? {};
@@ -238,6 +328,11 @@ function renderSetup(status) {
     ],
     [Boolean(setup.commandsRegisteredAt), 'Komendy slash zarejestrowane', setup.commandsRegisteredAt ? `ostatnio ${relTime(setup.commandsRegisteredAt)}` : 'zrobi się samo w ciągu minuty'],
     [cronAt && Date.now() - cronAt < 3 * MINUTE, 'Zadania okresowe (pg_cron co 30 s)', cronAt ? `ostatnio ${relTime(cronAt)}` : 'jeszcze nie uruchomione'],
+    [
+      gatewayOk(status.gateway),
+      'Status „online” i opisy (gateway co minutę)',
+      status.gateway?.error ?? (status.gateway?.startedAt ? `ostatnia sesja ${relTime(status.gateway.startedAt)}${status.gateway.mode === 'resume' ? ' (wznowiona)' : ''}` : 'uruchomi się w ciągu minuty'),
+    ],
   ];
   $('#setup-list').innerHTML = items
     .map(([done, label, hint]) => `<li><span>${done ? '✅' : '⏳'}</span><div>${esc(label)}${hint ? `<small>${esc(hint)}</small>` : ''}</div></li>`)
@@ -287,9 +382,12 @@ function renderConfigUi() {
   renderChannelSelects();
   renderRoles();
   renderRules();
+  renderActivities();
+  renderPermissions();
   renderEmbedTabs();
   fillInputs();
   $('#emoji-picks').innerHTML = EMOJI_PICKS.map((e) => `<button type="button" class="chip emoji" data-emoji="${e}">${e}</button>`).join('');
+  $('#presence-chips').innerHTML = PRESENCE_PLACEHOLDERS.map((p) => `<button type="button" class="chip" data-presence-placeholder="${p}">${p}</button>`).join('');
   $('#placeholder-chips').innerHTML = PLACEHOLDERS.map((p) => `<button type="button" class="chip" data-placeholder="${p}">${p}</button>`).join('');
   markDirty();
 }
@@ -372,6 +470,96 @@ $('#emoji-picks').addEventListener('click', (event) => {
   markDirty();
 });
 
+// ---------- Uprawnienia komend ----------
+// Ta sama logika co po stronie bota (moderation.js/roleHasAccess) — liczona tu, żeby pokazać
+// podgląd na żywo bez proszenia bota o każdą kombinację roli i komendy.
+const ADMINISTRATOR_BIT = 8n;
+function hasBit(bitsStr, bit) {
+  const bits = BigInt(bitsStr || 0);
+  return (bits & bit) === bit;
+}
+function roleCanUseDefault(role, permission, modRoleIds) {
+  if (hasBit(role.permissions, ADMINISTRATOR_BIT)) return true;
+  if (!permission) return true;
+  if (hasBit(role.permissions, BigInt(permission))) return true;
+  return modRoleIds.includes(role.id);
+}
+function roleCanUse(role, cmd, config) {
+  if (hasBit(role.permissions, ADMINISTRATOR_BIT)) return true;
+  const override = config.commandPermissions?.[cmd.name];
+  if (Array.isArray(override)) return override.includes(role.id);
+  return roleCanUseDefault(role, cmd.permission, config.modRoleIds);
+}
+
+function renderPermissions() {
+  if (!state.commandMeta) return;
+  const roles = state.guild.roles;
+  const overrides = state.draft.commandPermissions ?? (state.draft.commandPermissions = {});
+
+  $('#permission-commands').innerHTML = state.commandMeta
+    .map((cmd) => {
+      const active = Array.isArray(overrides[cmd.name]);
+      const selected = new Set(active ? overrides[cmd.name] : roles.filter((r) => roleCanUseDefault(r, cmd.permission, state.draft.modRoleIds)).map((r) => r.id));
+      const roleChecks = roles
+        .map(
+          (r) => `<label class="role-item"><input type="checkbox" data-perm-role="${r.id}" data-perm-cmd="${cmd.name}" ${selected.has(r.id) ? 'checked' : ''} ${active ? '' : 'disabled'}><span class="role-dot" style="background:${esc(r.color === '#000000' ? '#99aab5' : r.color)}"></span>${esc(r.name)}</label>`,
+        )
+        .join('');
+      return `<div class="perm-command" data-cmd="${cmd.name}">
+        <div class="perm-command-head">
+          <div><code>/${esc(cmd.name)}</code> <span class="muted small">${esc(cmd.description)}</span></div>
+          <label class="toggle small"><input type="checkbox" data-perm-toggle="${cmd.name}" ${active ? 'checked' : ''}><span></span>Ogranicz do wybranych ról</label>
+        </div>
+        <div class="muted small">Domyślnie: ${esc(cmd.permissionLabel)}${state.draft.modRoleIds.length ? ' albo rola moderatora z Ustawień' : ''}</div>
+        <div class="roles-list compact">${roleChecks || '<p class="muted small">Brak ról na serwerze.</p>'}</div>
+      </div>`;
+    })
+    .join('');
+
+  renderPermissionMatrix();
+}
+
+function renderPermissionMatrix() {
+  const roles = state.guild.roles;
+  const cmds = state.commandMeta;
+  if (!roles?.length || !cmds?.length) {
+    $('#permission-matrix').innerHTML = '<tr><td class="empty">Bot nie jest jeszcze połączony z serwerem — role pojawią się tutaj automatycznie.</td></tr>';
+    return;
+  }
+  const head = `<thead><tr><th>Rola</th>${cmds.map((c) => `<th title="${esc(c.description)}">/${esc(c.name)}</th>`).join('')}</tr></thead>`;
+  const body = roles
+    .map((r) => {
+      const cells = cmds.map((c) => `<td class="perm-cell">${roleCanUse(r, c, state.draft) ? '✅' : '—'}</td>`).join('');
+      return `<tr><td><span class="role-dot" style="background:${esc(r.color === '#000000' ? '#99aab5' : r.color)}"></span>${esc(r.name)}</td>${cells}</tr>`;
+    })
+    .join('');
+  $('#permission-matrix').innerHTML = head + `<tbody>${body}</tbody>`;
+}
+
+$('#permission-commands').addEventListener('change', (event) => {
+  const toggleName = event.target.dataset.permToggle;
+  if (toggleName) {
+    if (event.target.checked) {
+      const cmd = state.commandMeta.find((c) => c.name === toggleName);
+      state.draft.commandPermissions[toggleName] = state.guild.roles
+        .filter((r) => roleCanUseDefault(r, cmd.permission, state.draft.modRoleIds))
+        .map((r) => r.id);
+    } else {
+      delete state.draft.commandPermissions[toggleName];
+    }
+    renderPermissions();
+    markDirty();
+    return;
+  }
+  const roleId = event.target.dataset.permRole;
+  const cmdName = event.target.dataset.permCmd;
+  if (!roleId || !cmdName) return;
+  const list = state.draft.commandPermissions[cmdName] ?? [];
+  state.draft.commandPermissions[cmdName] = event.target.checked ? [...new Set([...list, roleId])] : list.filter((id) => id !== roleId);
+  renderPermissionMatrix();
+  markDirty();
+});
+
 // ---------- Progi automatycznych kar ----------
 const optionList = (map, selected) =>
   Object.entries(map).map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`).join('');
@@ -420,6 +608,111 @@ $('#add-rule').addEventListener('click', () => {
   renderRules();
   markDirty();
 });
+
+// ---------- Status bota (opisy) ----------
+function renderActivities() {
+  const list = state.draft.presence.activities;
+  const body = list
+    .map(
+      (a, i) => `<tr data-activity="${i}">
+        <td><select data-activity-field="type" aria-label="Rodzaj">${optionList(ACTIVITY_LABELS, a.type)}</select></td>
+        <td class="grow"><input type="text" maxlength="128" value="${esc(a.text)}" data-activity-field="text" aria-label="Tekst opisu"></td>
+        <td><button type="button" class="btn ghost small" data-activity-del title="Usuń opis">✕</button></td>
+      </tr>`,
+    )
+    .join('');
+  $('#activities-table').innerHTML = `<thead><tr><th>Rodzaj</th><th>Tekst</th><th></th></tr></thead>
+    <tbody>${body || '<tr><td colspan="3" class="empty">Brak opisów — bot będzie tylko „online”.</td></tr>'}</tbody>`;
+  $('#add-activity').disabled = list.length >= 10;
+}
+
+function onActivityChange(event) {
+  const row = event.target.closest('[data-activity]');
+  const field = event.target.dataset.activityField;
+  if (!row || !field) return;
+  event.stopPropagation();
+  state.draft.presence.activities[Number(row.dataset.activity)][field] = event.target.value;
+  state.lastActivityInput = field === 'text' ? event.target : state.lastActivityInput;
+  markDirty();
+}
+$('#activities-table').addEventListener('input', onActivityChange);
+$('#activities-table').addEventListener('change', onActivityChange);
+$('#activities-table').addEventListener('focusin', (event) => {
+  if (event.target.dataset.activityField === 'text') state.lastActivityInput = event.target;
+});
+$('#activities-table').addEventListener('click', (event) => {
+  const row = event.target.closest('[data-activity-del]') && event.target.closest('[data-activity]');
+  if (!row) return;
+  state.draft.presence.activities.splice(Number(row.dataset.activity), 1);
+  state.lastActivityInput = null;
+  renderActivities();
+  markDirty();
+});
+$('#add-activity').addEventListener('click', () => {
+  state.draft.presence.activities.push({ type: 'custom', text: '🫓 ' });
+  renderActivities();
+  markDirty();
+  const inputs = $$('#activities-table [data-activity-field="text"]');
+  inputs.at(-1)?.focus();
+});
+$('#presence-chips').addEventListener('click', (event) => {
+  const text = event.target.closest('[data-presence-placeholder]')?.dataset.presencePlaceholder;
+  const field = state.lastActivityInput?.isConnected ? state.lastActivityInput : $$('#activities-table [data-activity-field="text"]').at(-1);
+  if (!text || !field) return;
+  const start = field.selectionStart ?? field.value.length;
+  const end = field.selectionEnd ?? field.value.length;
+  field.value = (field.value.slice(0, start) + text + field.value.slice(end)).slice(0, 128);
+  field.focus();
+  field.setSelectionRange(start + text.length, start + text.length);
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+});
+
+// ---------- Hasło panelu ----------
+function renderPasswordStatus(status) {
+  const text = $('#password-status');
+  const form = $('#password-form');
+  if (!text || !form) return;
+  if (status.passwordFixed) {
+    text.textContent = 'Hasło jest ustawione na stałe przez sekret PANEL_PASSWORD w Supabase (Edge Functions → Secrets) — zmień je tam.';
+    form.classList.add('hidden');
+  } else {
+    text.textContent = 'Hasło zostało wygenerowane automatycznie i trzyma je bot w bazie. Możesz je tutaj zmienić na własne.';
+    form.classList.remove('hidden');
+  }
+}
+
+$('#password-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const next = $('#password-new').value;
+  const repeat = $('#password-repeat').value;
+  if (next !== repeat) return toast('Hasła nie są takie same.', 'error');
+  $('#password-submit').disabled = true;
+  try {
+    await api('/password', { method: 'POST', body: JSON.stringify({ next }) });
+    setPanelPassword(next);
+    $('#password-new').value = '';
+    $('#password-repeat').value = '';
+    toast('Hasło panelu zmienione ✅');
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    $('#password-submit').disabled = false;
+  }
+});
+
+function renderGatewayLine(gateway) {
+  const line = $('#gateway-line');
+  if (!line) return;
+  if (!gateway?.startedAt) {
+    line.textContent = 'gateway: jeszcze nie połączony';
+    return;
+  }
+  const fresh = Date.now() - (gateway.endedAt ?? gateway.startedAt) < 3 * MINUTE;
+  const current = gateway.activity ? ` • „${gateway.activity}”` : '';
+  line.textContent = gateway.error
+    ? `🔴 ${gateway.error}`
+    : `${fresh ? '🟢' : '🟠'} gateway ${relTime(gateway.endedAt ?? gateway.startedAt)}${current}`;
+}
 
 // ---------- Zapis ----------
 function isDirty() {
@@ -541,12 +834,13 @@ const withEmoji = (style, text) => {
   return style.emoji ? `${style.emoji} ${cleaned}` : cleaned;
 };
 
-// Odzwierciedla src/lib/embeds.js — przykładowe dane do podglądu.
+// Odzwierciedla supabase/functions/hopkostki-bot/lib/embeds.js — przykładowe dane do podglądu.
 function previewData(action) {
   const cfg = state.draft;
   const style = cfg.actions[action];
   const now = Date.now();
   const server = state.status?.guild?.name ?? 'Entuzjaści Hopkostki';
+  const brand = 'Entuzjaści Hopkostki 🫓';
   const ctx = { duration: null, expiresAt: null, warn: null };
   if (action === 'ban') Object.assign(ctx, { duration: '14 dni', expiresAt: now + 14 * DAY });
   if (action === 'timeout') Object.assign(ctx, { duration: '2 godziny', expiresAt: now + 2 * HOUR });
@@ -566,50 +860,78 @@ function previewData(action) {
     typ: action === 'ban' ? 'tymczasowo' : '',
   };
   const fill = (text) => String(text ?? '').replace(/\{(\w+)\}/g, (m, key) => (key in vars ? vars[key] : m));
+  const stamp = (ms) => `${ts(ms, 'f')}\n${ts(ms, 'R')}`;
 
-  const timeLines = [];
-  if (durationText) timeLines.push(`**Czas:** ${durationText}`);
-  if (ctx.expiresAt) timeLines.push(`**Wygasa:** ${ts(ctx.expiresAt, 'f')} (${ts(ctx.expiresAt, 'R')})`);
-  const warnLines = (points, totals) => {
+  const timeFields = [];
+  if (durationText) timeFields.push({ name: '⏱️ Czas trwania', value: `**${durationText}**`, inline: true });
+  if (ctx.expiresAt) timeFields.push({ name: '📅 Wygasa', value: stamp(ctx.expiresAt), inline: true });
+  const warnFields = (points, totals) => {
     if (!ctx.warn) return [];
-    const lines = [];
-    if (points) lines.push(`**Punkty:** +${ctx.warn.points}`);
-    if (totals) lines.push(`**Aktywne ostrzeżenia:** ${ctx.warn.count} (łącznie **${ctx.warn.total} pkt**)`);
-    if (ctx.warn.expiresAt) lines.push(`**Ostrzeżenie wygasa:** ${ts(ctx.warn.expiresAt, 'f')} (${ts(ctx.warn.expiresAt, 'R')})`);
-    return lines;
+    const fields = [];
+    if (points) fields.push({ name: '🔢 Punkty', value: `**+${ctx.warn.points}**${totals ? ` (razem **${ctx.warn.total}**)` : ''}`, inline: true });
+    if (ctx.warn.expiresAt) fields.push({ name: '⏳ Ostrzeżenie wygasa', value: stamp(ctx.warn.expiresAt), inline: true });
+    return fields;
   };
+  const issued = { name: '🗓️ Nałożono', value: stamp(now), inline: true };
+  const reason = { name: '📝 Powód', value: SAMPLE.reason, code: true };
   const showPoints = cfg.warns.showPointsToUser;
 
   const channel = {
     content: cfg.mentionTarget ? `<@${SAMPLE.targetId}>` : '',
+    author: `${server} • Moderacja`,
     title: withEmoji(style, fill(style.title)),
-    description: [
-      withEmoji(style, fill(style.description)),
-      '',
-      `**Użytkownik:** <@${SAMPLE.targetId}> (\`${SAMPLE.target}\`)`,
-      `**Moderator:** <@${SAMPLE.modId}>`,
-      `**Powód:** ${SAMPLE.reason}`,
-      ...timeLines,
-      ...warnLines(showPoints, false),
-      `**Data:** ${ts(now, 'f')}`,
-    ].join('\n'),
-    footer: `Sprawa #42 • ${server}`,
-    thumb: true,
+    description: fill(style.description).trim(),
+    fields: [
+      { name: '👤 Użytkownik', value: `<@${SAMPLE.targetId}>\n\`${SAMPLE.target}\``, inline: true },
+      { name: '🛡️ Moderator', value: `<@${SAMPLE.modId}>`, inline: true },
+      ...timeFields,
+      issued,
+      ...warnFields(showPoints, false),
+      reason,
+    ],
+    footer: `Sprawa #42 • ${brand}`,
+    thumb: '🧑',
   };
 
-  const dmLines = [withEmoji(style, fill(style.dmDescription)), '', `**Powód:** ${SAMPLE.reason}`, ...timeLines, ...warnLines(showPoints, showPoints)];
-  if (cfg.dmShowModerator) dmLines.push(`**Moderator:** ${SAMPLE.mod}`);
-  dmLines.push(`**Data:** ${ts(now, 'f')}`);
-  if (cfg.appealText && ['ban', 'kick', 'timeout', 'warn'].includes(action)) dmLines.push('', `-# ${cfg.appealText}`);
-  const dm = { author: server, title: withEmoji(style, fill(style.dmTitle)), description: dmLines.join('\n'), footer: 'Sprawa #42' };
+  const dmFields = [...timeFields, issued, ...warnFields(showPoints, showPoints)];
+  if (cfg.dmShowModerator) dmFields.push({ name: '🛡️ Moderator', value: SAMPLE.mod, inline: true });
+  dmFields.push(reason);
+  if (cfg.appealText && ['ban', 'kick', 'timeout', 'warn'].includes(action)) dmFields.push({ name: '💬 Odwołania', value: cfg.appealText });
+  const dm = {
+    author: server,
+    title: withEmoji(style, fill(style.dmTitle)),
+    description: fill(style.dmDescription).trim(),
+    fields: dmFields,
+    footer: `Sprawa #42 • ${brand}`,
+    thumb: state.status?.guild?.icon ? { src: state.status.guild.icon } : '🫓',
+  };
 
   return { color: style.color, channel, dm };
+}
+
+// Pola embeda jak w Discordzie: do 3 pól "inline" w rzędzie, pozostałe na całą szerokość.
+function fieldsHtml(fields = []) {
+  if (!fields.length) return '';
+  const items = fields
+    .map((f) => {
+      const value = f.code ? `<pre class="codeblock">${esc(f.value)}</pre>` : md(f.value);
+      return `<div class="embed-field ${f.inline ? 'inline' : ''}"><div class="embed-field-name">${md(f.name)}</div><div class="embed-field-value">${value}</div></div>`;
+    })
+    .join('');
+  return `<div class="embed-fields">${items}</div>`;
+}
+
+function thumbHtml(thumb) {
+  if (!thumb) return '<div></div>';
+  if (thumb.src) return `<div class="embed-thumb"><img src="${esc(thumb.src)}" alt=""></div>`;
+  return `<div class="embed-thumb">${esc(thumb)}</div>`;
 }
 
 function messageHtml({ color, embed, content, slash }) {
   const time = new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
   const avatar = state.status?.bot?.avatar ? `<img src="${esc(state.status.bot.avatar)}" alt="">` : '🫓';
   const name = state.status?.bot?.tag?.split('#')[0] ?? 'Entuzjaści Hopkostki';
+  const icon = state.status?.guild?.icon ? `<img class="embed-author-icon" src="${esc(state.status.guild.icon)}" alt="">` : '';
   return `<div class="msg">
     <div class="msg-avatar">${avatar}</div>
     <div>
@@ -618,11 +940,12 @@ function messageHtml({ color, embed, content, slash }) {
       ${content ? `<div>${md(content)}</div>` : ''}
       <div class="embed" style="border-left-color:${esc(color)}">
         <div>
-          ${embed.author ? `<div class="embed-author">${esc(embed.author)}</div>` : ''}
+          ${embed.author ? `<div class="embed-author">${icon}${esc(embed.author)}</div>` : ''}
           <div class="embed-title">${md(embed.title)}</div>
-          <div class="embed-desc">${md(embed.description)}</div>
+          ${embed.description ? `<div class="embed-desc">${md(embed.description)}</div>` : ''}
+          ${fieldsHtml(embed.fields)}
         </div>
-        ${embed.thumb ? '<div class="embed-thumb">🧑</div>' : '<div></div>'}
+        ${thumbHtml(embed.thumb)}
         <div class="embed-footer">${esc(embed.footer)} • Dzisiaj o ${time}</div>
       </div>
     </div>
@@ -825,4 +1148,4 @@ function tick() {
   }
 }
 
-init().catch((error) => toast(error.message, 'error'));
+boot();

@@ -67,6 +67,7 @@ export async function getGuildContext(bot, { force = false } = {}) {
         icon: guild.icon,
         ownerId: guild.owner_id,
         memberCount: guild.approximate_member_count ?? null,
+        onlineCount: guild.approximate_presence_count ?? null,
       },
       roles: rolesById(guild.roles ?? []),
       rawRoles: guild.roles ?? [],
@@ -78,15 +79,38 @@ export async function getGuildContext(bot, { force = false } = {}) {
 
 // ---------- Uprawnienia ----------
 
-export function hasModAccess(member, permission, config) {
+// commandName pozwala na nadpisanie dostępu dla pojedynczej komendy z panelu (zakładka "Uprawnienia") —
+// gdy jest ustawione, liczy się TYLKO lista wybranych ról (plus administratorzy), niezależnie od
+// uprawnień Discorda i ogólnej listy ról moderatorów.
+export function hasModAccess(member, permission, config, commandName) {
   if (!member) return false;
   if (has(member.permissions, P.ADMINISTRATOR)) return true;
-  if (permission && has(member.permissions, permission)) return true;
+  const override = commandName ? config.commandPermissions?.[commandName] : undefined;
+  if (Array.isArray(override)) return override.some((id) => member.roles?.includes(id));
+  if (!permission) return true; // komenda otwarta dla wszystkich (chyba że nadpisano wyżej)
+  if (has(member.permissions, permission)) return true;
   return config.modRoleIds.some((id) => member.roles?.includes(id));
 }
 
-const REQUIRED = { ban: P.BAN_MEMBERS, kick: P.KICK_MEMBERS, timeout: P.MODERATE_MEMBERS, untimeout: P.MODERATE_MEMBERS };
-const PERMISSION_NAMES = { ban: 'Banowanie członków', kick: 'Wyrzucanie członków', timeout: 'Wyciszanie członków', untimeout: 'Wyciszanie członków' };
+// Ta sama logika, ale dla pojedynczej roli (bez konkretnego członka) — używana w panelu do policzenia,
+// kto może użyć jakiej komendy. bits = surowe uprawnienia roli (string), roleId = jej ID.
+export function roleHasAccess(role, permission, config, commandName) {
+  if (has(role.permissions, P.ADMINISTRATOR)) return true;
+  const override = commandName ? config.commandPermissions?.[commandName] : undefined;
+  if (Array.isArray(override)) return override.includes(role.id);
+  if (!permission) return true;
+  if (has(role.permissions, permission)) return true;
+  return config.modRoleIds.includes(role.id);
+}
+
+const REQUIRED = { ban: P.BAN_MEMBERS, kick: P.KICK_MEMBERS, timeout: P.MODERATE_MEMBERS, untimeout: P.MODERATE_MEMBERS, nick: P.MANAGE_NICKNAMES };
+const PERMISSION_NAMES = {
+  ban: 'Banowanie członków',
+  kick: 'Wyrzucanie członków',
+  timeout: 'Wyciszanie członków',
+  untimeout: 'Wyciszanie członków',
+  nick: 'Zarządzanie pseudonimami',
+};
 
 // Zwraca komunikat błędu albo null, jeśli akcję można wykonać.
 // moderator = { id, roles } (null przy automatycznych karach), targetMember = { roles } albo null.

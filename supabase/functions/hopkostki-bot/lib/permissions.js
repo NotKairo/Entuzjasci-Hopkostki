@@ -11,11 +11,29 @@ export const P = {
   MANAGE_MESSAGES: 1n << 13n,
   EMBED_LINKS: 1n << 14n,
   READ_MESSAGE_HISTORY: 1n << 16n,
+  MENTION_EVERYONE: 1n << 17n,
   USE_EXTERNAL_EMOJIS: 1n << 18n,
+  MANAGE_NICKNAMES: 1n << 27n,
   MANAGE_ROLES: 1n << 28n,
   SEND_MESSAGES_IN_THREADS: 1n << 38n,
   MODERATE_MEMBERS: 1n << 40n,
 };
+
+// Nazwy uprawnień do wyświetlenia w panelu (zakładka "Uprawnienia").
+export const PERMISSION_LABELS = {
+  [String(P.BAN_MEMBERS)]: 'Banowanie członków',
+  [String(P.KICK_MEMBERS)]: 'Wyrzucanie członków',
+  [String(P.MODERATE_MEMBERS)]: 'Wyciszanie członków (timeout)',
+  [String(P.MANAGE_MESSAGES)]: 'Zarządzanie wiadomościami',
+  [String(P.MANAGE_CHANNELS)]: 'Zarządzanie kanałami',
+  [String(P.MANAGE_ROLES)]: 'Zarządzanie rolami',
+  [String(P.MANAGE_NICKNAMES)]: 'Zarządzanie pseudonimami',
+};
+
+export function permissionLabel(bits) {
+  if (!bits) return 'Każdy (bez wymaganych uprawnień)';
+  return PERMISSION_LABELS[String(bits)] ?? 'Uprawnienie Discorda';
+}
 
 export function has(bitfield, permission) {
   const bits = BigInt(bitfield ?? 0);

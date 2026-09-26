@@ -232,6 +232,15 @@ textarea { resize: vertical; }
 .embed-desc small { color: var(--muted); font-size: .78rem; }
 .embed-thumb { width: 72px; height: 72px; border-radius: 6px; background: #4e5058; display: grid; place-items: center; font-size: 2rem; }
 .embed-footer { grid-column: 1 / -1; font-size: .75rem; color: var(--muted); margin-top: .2rem; }
+.embed-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; }
+.embed-author-icon { width: 20px; height: 20px; border-radius: 50%; }
+.embed-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem .9rem; margin-top: .55rem; }
+.embed-field { grid-column: 1 / -1; min-width: 0; }
+.embed-field.inline { grid-column: auto; }
+.embed-field-name { font-size: .82rem; font-weight: 700; color: var(--text-strong); margin-bottom: .1rem; }
+.embed-field-value { font-size: .88rem; overflow-wrap: anywhere; }
+.codeblock { margin: .15rem 0 0; padding: .45rem .6rem; background: #1e1f22; border: 1px solid #111214; border-radius: 4px; font-size: .82rem; white-space: pre-wrap; color: var(--text); }
+@media (max-width: 560px) { .embed-fields { grid-template-columns: 1fr; } }
 .embed img.emoji, .embed-title img.emoji { width: 1.2em; height: 1.2em; vertical-align: -.25em; }
 
 /* ---------- Połączenie, pasek zapisu, toast ---------- */
@@ -274,3 +283,39 @@ textarea { resize: vertical; }
   .warn-row { grid-template-columns: 1fr auto; }
   .warn-row .reason { grid-column: 1 / -1; }
 }
+#activities-table td.grow { width: 100%; }
+#activities-table td.grow input { width: 100%; }
+#gateway-line { text-align: right; }
+
+/* ---------- Logowanie do panelu ---------- */
+.login-gate {
+  position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center;
+  padding: 1rem; z-index: 100;
+}
+.login-gate.hidden { display: none; }
+.login-card {
+  background: var(--bg-2); border-radius: var(--radius); padding: 2rem; width: min(380px, 100%);
+  text-align: center; box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
+}
+.login-card .logo { margin-bottom: .5rem; }
+.login-card h2 { font-size: 1.2rem; }
+.login-card p { margin: 0 0 1rem; }
+.login-card input { margin-bottom: .6rem; text-align: center; }
+.login-card .btn { width: 100%; margin-top: .3rem; }
+button.side-link { background: none; border: none; font: inherit; text-align: left; width: 100%; cursor: pointer; }
+
+/* ---------- Uprawnienia ---------- */
+.perm-command { border: 1px solid var(--line); border-radius: 8px; padding: .8rem .9rem; margin-bottom: .6rem; }
+.perm-command:last-child { margin-bottom: 0; }
+.perm-command-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: .3rem; }
+.perm-command-head code { font-size: .95rem; }
+.toggle.small { font-size: .82rem; margin: 0; gap: .5rem; }
+.toggle.small span { width: 32px; height: 19px; }
+.toggle.small span::after { width: 13px; height: 13px; }
+.toggle.small input:checked + span::after { transform: translateX(13px); }
+.roles-list.compact { max-height: 140px; margin-top: .5rem; flex-direction: row; flex-wrap: wrap; gap: .3rem .8rem; }
+.roles-list.compact .role-item { padding: .15rem 0; }
+#permission-matrix th, #permission-matrix td { text-align: center; }
+#permission-matrix th:first-child, #permission-matrix td:first-child { text-align: left; white-space: nowrap; }
+#permission-matrix td:first-child .role-dot { display: inline-block; margin-right: .4rem; vertical-align: middle; }
+.perm-cell { font-size: 1rem; }

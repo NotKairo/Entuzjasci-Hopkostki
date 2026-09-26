@@ -80,31 +80,67 @@ function warnLines(ctx, { points, totals }) {
   return lines;
 }
 
+export const BRAND = 'Entuzjaści Hopkostki 🫓';
+
 function footer(text, guild) {
   const icon = guildIconUrl(guild);
   return icon ? { text, icon_url: icon } : { text };
 }
 
+function authorLine(guild, suffix) {
+  const icon = guildIconUrl(guild);
+  const name = suffix ? `${guild.name} • ${suffix}` : guild.name;
+  return icon ? { name, icon_url: icon } : { name };
+}
+
+// Powód w ramce (blok kodu), żeby było go dobrze widać.
+export function reasonBlock(reason) {
+  const safe = String(reason ?? '').replace(/```/g, 'ˋˋˋ').slice(0, 1000);
+  return `\`\`\`\n${safe}\n\`\`\``;
+}
+
+const stamp = (ms) => `${discordTimestamp(ms, 'f')}\n${discordTimestamp(ms, 'R')}`;
+
+function timeFields(ctx) {
+  const fields = [];
+  const duration = durationText(ctx);
+  if (duration) fields.push({ name: '⏱️ Czas trwania', value: `**${duration}**`, inline: true });
+  if (ctx.expiresAt) fields.push({ name: '📅 Wygasa', value: stamp(ctx.expiresAt), inline: true });
+  return fields;
+}
+
+function warnFields(ctx, { points, totals }) {
+  if (ctx.action !== 'warn' || !ctx.warn) return [];
+  const fields = [];
+  if (points) {
+    const total = totals ? ` (razem **${ctx.warn.totalPoints}**)` : '';
+    fields.push({ name: '🔢 Punkty', value: `**+${ctx.warn.points}**${total}`, inline: true });
+  }
+  if (ctx.warn.expiresAt) fields.push({ name: '⏳ Ostrzeżenie wygasa', value: stamp(ctx.warn.expiresAt), inline: true });
+  return fields;
+}
+
+const issuedField = (ctx) => ({ name: '🗓️ Nałożono', value: stamp(ctx.createdAt), inline: true });
+
 // Embed publikowany na kanale (odpowiedź na komendę lub kanał ogłoszeń).
 export function buildChannelEmbed(ctx, config) {
   const style = config.actions[ctx.action];
   const vars = templateVars(ctx);
-  const lines = [
-    withEmoji(style, fillTemplate(style.description, vars)),
-    '',
-    `**Użytkownik:** <@${ctx.target.id}> (\`${ctx.target.username}\`)`,
-    `**Moderator:** <@${ctx.moderator.id}>${ctx.auto ? ' (automatycznie)' : ''}`,
-    `**Powód:** ${ctx.reason}`,
-    ...timeLines(ctx),
-    ...warnLines(ctx, { points: config.warns.showPointsToUser, totals: false }),
-    `**Data:** ${discordTimestamp(ctx.createdAt, 'f')}`,
-  ];
   return {
     color: colorInt(style.color),
+    author: authorLine(ctx.guild, 'Moderacja'),
     title: withEmoji(style, fillTemplate(style.title, vars)),
-    description: lines.join('\n'),
+    description: fillTemplate(style.description, vars).trim(),
     thumbnail: { url: avatarUrl(ctx.target) },
-    footer: footer(`Sprawa #${ctx.caseId} • ${ctx.guild.name}`, ctx.guild),
+    fields: [
+      { name: '👤 Użytkownik', value: `<@${ctx.target.id}>\n\`${ctx.target.username}\``, inline: true },
+      { name: '🛡️ Moderator', value: `<@${ctx.moderator.id}>${ctx.auto ? '\n`🤖 automatycznie`' : ''}`, inline: true },
+      ...timeFields(ctx),
+      issuedField(ctx),
+      ...warnFields(ctx, { points: config.warns.showPointsToUser, totals: false }),
+      { name: '📝 Powód', value: reasonBlock(ctx.reason) },
+    ],
+    footer: footer(`Sprawa #${ctx.caseId} • ${BRAND}`, ctx.guild),
     timestamp: new Date(ctx.createdAt).toISOString(),
   };
 }
@@ -114,25 +150,26 @@ export function buildDmEmbed(ctx, config) {
   const style = config.actions[ctx.action];
   const vars = templateVars(ctx);
   const showPoints = config.warns.showPointsToUser;
-  const lines = [withEmoji(style, fillTemplate(style.dmDescription, vars)), '', `**Powód:** ${ctx.reason}`];
-  lines.push(...timeLines(ctx));
-  lines.push(...warnLines(ctx, { points: showPoints, totals: showPoints }));
+  const fields = [...timeFields(ctx), issuedField(ctx), ...warnFields(ctx, { points: showPoints, totals: showPoints })];
   if (config.dmShowModerator) {
-    lines.push(`**Moderator:** ${ctx.auto ? 'Automatyczna kara' : escapeMarkdown(ctx.moderator.username)}`);
+    fields.push({ name: '🛡️ Moderator', value: ctx.auto ? '🤖 Automatyczna kara' : escapeMarkdown(ctx.moderator.username), inline: true });
   }
-  lines.push(`**Data:** ${discordTimestamp(ctx.createdAt, 'f')}`);
+  fields.push({ name: '📝 Powód', value: reasonBlock(ctx.reason) });
   if (config.appealText && ['ban', 'kick', 'timeout', 'warn'].includes(ctx.action)) {
-    lines.push('', `-# ${config.appealText}`);
+    fields.push({ name: '💬 Odwołania', value: config.appealText.slice(0, 1000) });
   }
   const icon = guildIconUrl(ctx.guild);
-  return {
+  const embed = {
     color: colorInt(style.color),
-    author: icon ? { name: ctx.guild.name, icon_url: icon } : { name: ctx.guild.name },
+    author: authorLine(ctx.guild),
     title: withEmoji(style, fillTemplate(style.dmTitle, vars)),
-    description: lines.join('\n'),
-    footer: { text: `Sprawa #${ctx.caseId}` },
+    description: fillTemplate(style.dmDescription, vars).trim(),
+    fields,
+    footer: { text: `Sprawa #${ctx.caseId} • ${BRAND}` },
     timestamp: new Date(ctx.createdAt).toISOString(),
   };
+  if (icon) embed.thumbnail = { url: icon };
+  return embed;
 }
 
 // Embed do kanału logów moderacji — pełne informacje, także te ukryte przed użytkownikami.

@@ -5,11 +5,11 @@ export const HOUR = 60 * MINUTE;
 export const DAY = 24 * HOUR;
 
 export const UNITS = {
-  m: { ms: MINUTE, label: 'Minuty', forms: ['minuta', 'minuty', 'minut'] },
-  h: { ms: HOUR, label: 'Godziny', forms: ['godzina', 'godziny', 'godzin'] },
-  d: { ms: DAY, label: 'Dni', forms: ['dzień', 'dni', 'dni'] },
-  w: { ms: 7 * DAY, label: 'Tygodnie', forms: ['tydzień', 'tygodnie', 'tygodni'] },
-  mo: { ms: 30 * DAY, label: 'Miesiące (30 dni)', forms: ['miesiąc', 'miesiące', 'miesięcy'] },
+  m: { ms: MINUTE, label: '⏱️ Minuty', forms: ['minuta', 'minuty', 'minut'] },
+  h: { ms: HOUR, label: '🕐 Godziny', forms: ['godzina', 'godziny', 'godzin'] },
+  d: { ms: DAY, label: '📅 Dni', forms: ['dzień', 'dni', 'dni'] },
+  w: { ms: 7 * DAY, label: '🗓️ Tygodnie', forms: ['tydzień', 'tygodnie', 'tygodni'] },
+  mo: { ms: 30 * DAY, label: '📆 Miesiące (30 dni)', forms: ['miesiąc', 'miesiące', 'miesięcy'] },
 };
 
 // Discord pozwala na timeout maksymalnie 28 dni.

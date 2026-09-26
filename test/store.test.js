@@ -10,6 +10,7 @@ const warnInput = (userId, points = 1, caseId = null) => ({
 test('konfiguracja: domyślne 60 dni wygasania i walidacja zapisu', async () => {
   const { store } = await createTestStore();
   assert.equal((await store.getConfig()).warns.expiryDays, 60);
+  assert.deepEqual((await store.getConfig()).commandPermissions, {});
   const config = await store.updateConfig({
     modLogChannelId: 'nie-id',
     announceChannelId: '123456789012345678',
@@ -17,6 +18,7 @@ test('konfiguracja: domyślne 60 dni wygasania i walidacja zapisu', async () => 
     warns: { expiryDays: 30, defaultPoints: -5 },
     actions: { ban: { color: 'czerwony', title: 'Ban!' } },
     escalation: { rules: [{ points: 10, action: 'ban', amount: 1, unit: 'd' }, { points: 3, action: 'hack', amount: 1, unit: 'd' }] },
+    commandPermissions: { ban: ['123456789012345678', 'zle', '123456789012345678'], nieistniejacakomenda: ['123456789012345678'] },
     nieznane: true,
   });
   assert.equal(config.modLogChannelId, '');
@@ -27,8 +29,14 @@ test('konfiguracja: domyślne 60 dni wygasania i walidacja zapisu', async () => 
   assert.equal(config.actions.ban.color, '#ED4245');
   assert.equal(config.actions.ban.title, 'Ban!');
   assert.deepEqual(config.escalation.rules.map((r) => r.points), [10]);
+  // Tylko prawdziwe nazwy komend, zduplikowane/nieprawidłowe ID ról odsiane.
+  assert.deepEqual(config.commandPermissions, { ban: ['123456789012345678'] });
   assert.equal('nieznane' in config, false);
   assert.deepEqual(await store.getConfig(), config);
+
+  // Usunięcie nadpisania (wartość inna niż tablica dla tej komendy) wraca do zasad domyślnych.
+  const reset = await store.updateConfig({ commandPermissions: {} });
+  assert.deepEqual(reset.commandPermissions, {});
 });
 
 test('każde ostrzeżenie ma własne odliczanie 60 dni', async () => {

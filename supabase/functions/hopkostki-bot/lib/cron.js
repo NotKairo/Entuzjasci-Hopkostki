@@ -1,7 +1,7 @@
 // Zadania uruchamiane co 30 s przez pg_cron:
 // - konfiguracja aplikacji (rejestracja komend, adres Interactions Endpoint),
 // - zdejmowanie wygasłych tymczasowych banów i usuwanie wygasłych ostrzeżeń,
-// - reakcje 🫓 pod odpowiedziami na wiadomości o karach (bez gatewaya trzeba przeglądać kanały).
+// - reakcje 🫓 pod odpowiedziami na wiadomości o karach (zapas, gdyby sesja gateway coś przegapiła).
 
 import { commandDefinitions } from './commands.js';
 import { getApp, resolveGuildId, expireTempBan, logExpiredWarns } from './moderation.js';

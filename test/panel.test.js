@@ -34,11 +34,83 @@ test('API panelu: status, kanały, role i zapis konfiguracji', async () => {
 
   const guild = await (await s.call('/guild')).json();
   assert.deepEqual(guild.channels.map((c) => [c.name, c.category]), [['ogolny', null], ['mod-logi', 'Moderacja']]);
-  assert.deepEqual(guild.roles.map((r) => r.name), ['Admin', 'Bot', 'Moderator', 'Entuzjasta']);
+  assert.deepEqual(guild.roles.map((r) => r.name), ['Admin', 'Bot', 'Moderator', 'Fan', 'Entuzjasta']);
 
   const { config } = await (await s.call('/config', { method: 'PUT', body: { replyReaction: { emoji: '🍞' } } })).json();
   assert.equal(config.replyReaction.emoji, '🍞');
   assert.equal((await s.store.getConfig()).replyReaction.emoji, '🍞');
+});
+
+test('API panelu: metadane komend i nadpisania uprawnień', async () => {
+  const s = await setup();
+  const { commands } = await (await s.call('/commands')).json();
+  assert.ok(commands.length >= 20);
+  const kick = commands.find((c) => c.name === 'kick');
+  assert.equal(kick.permissionLabel, 'Wyrzucanie członków');
+  const pomoc = commands.find((c) => c.name === 'pomoc');
+  assert.equal(pomoc.permission, null);
+  assert.equal(pomoc.permissionLabel, 'Każdy (bez wymaganych uprawnień)');
+
+  const guild = await (await s.call('/guild')).json();
+  assert.ok(guild.roles.every((r) => typeof r.permissions === 'string' && typeof r.position === 'number'));
+
+  const roleId = '100000000000000099'; // ID jak prawdziwy snowflake — krótkie ID z atrapy Discorda odpadłyby w sanitizerze
+  const { config } = await (
+    await s.call('/config', { method: 'PUT', body: { commandPermissions: { kick: [roleId], falszywa: ['x'] } } })
+  ).json();
+  assert.deepEqual(config.commandPermissions, { kick: [roleId] });
+});
+
+test('hasło panelu: zmiana działa tylko gdy nie jest ustawione na stałe przez sekret', async () => {
+  const s = await setup();
+  const fixed = await s.call('/password', { method: 'POST', body: { next: 'nowehaslo123' } });
+  assert.equal(fixed.status, 400);
+
+  // Bez sekretu PANEL_PASSWORD hasło jest generowane automatycznie i trzymane w bot.state.
+  const { store } = await createTestStore();
+  const discord = fakeDiscord();
+  const bot = makeBot({ store, discord, env: { panelPassword: '' } });
+  const handle = createHandler(bot);
+  const call = (path, opts = {}) => handle(new Request(`${BASE}${path}`, { method: opts.method ?? 'GET', headers: { 'x-panel-password': opts.password ?? '', 'Content-Type': 'application/json' }, body: opts.body ? JSON.stringify(opts.body) : undefined }));
+
+  const denied = await call('/status');
+  assert.equal(denied.status, 401);
+  const generated = await store.getState('panel_password');
+  assert.ok(generated && generated.length >= 20, 'hasło wygenerowane samo przy pierwszym użyciu');
+  assert.equal((await call('/status', { password: generated })).status, 200);
+
+  const changed = await call('/password', { method: 'POST', password: generated, body: { next: 'moje-nowe-haslo' } });
+  assert.equal(changed.status, 200);
+  assert.equal(await store.getState('panel_password'), 'moje-nowe-haslo');
+  assert.equal((await call('/status', { password: generated })).status, 401, 'stare hasło już nie działa');
+  assert.equal((await call('/status', { password: 'moje-nowe-haslo' })).status, 200);
+
+  const tooShort = await call('/password', { method: 'POST', password: 'moje-nowe-haslo', body: { next: 'x' } });
+  assert.equal(tooShort.status, 400);
+});
+
+test('panel jest hostowany przez samą funkcję: przekierowanie, strona i pliki statyczne bez hasła', async () => {
+  const s = await setup();
+  const bare = await s.handle(new Request(`https://x.supabase.co/functions/v1/hopkostki-bot/panel`));
+  assert.equal(bare.status, 302);
+  assert.equal(bare.headers.get('location'), 'https://x.supabase.co/functions/v1/hopkostki-bot/panel/');
+
+  const index = await s.handle(new Request(`${BASE}/`));
+  assert.match(await index.text(), /Panel — Entuzjaści Hopkostki/);
+  assert.equal(index.headers.get('content-type'), 'text/html; charset=utf-8');
+
+  const js = await s.handle(new Request(`${BASE}/app.js`));
+  assert.equal(js.status, 200);
+  assert.equal(js.headers.get('content-type'), 'text/javascript; charset=utf-8');
+  assert.match(await js.text(), /getPanelPassword/);
+
+  const css = await s.handle(new Request(`${BASE}/style.css`));
+  assert.equal(css.status, 200);
+  assert.equal(css.headers.get('content-type'), 'text/css; charset=utf-8');
+
+  // Te pliki są publiczne — bez nagłówka hasła, w przeciwieństwie do reszty API panelu.
+  const status = await s.handle(new Request(`${BASE}/status`));
+  assert.equal(status.status, 401);
 });
 
 test('API panelu: usuwanie ostrzeżenia i ręczne odbanowanie', async () => {
@@ -54,7 +126,7 @@ test('API panelu: usuwanie ostrzeżenia i ręczne odbanowanie', async () => {
   assert.equal((await s.call('/tempbans/target/unban', { method: 'POST' })).status, 404, 'tylko liczbowe ID');
 });
 
-test('lokalny panel przekazuje /api do bota z hasłem i serwuje frontend', async () => {
+test('lokalny panel serwuje frontend i przekazuje resztę żądań do bota z hasłem przeglądarki', async () => {
   const seen = [];
   const upstream = http.createServer((req, res) => {
     seen.push({ method: req.method, url: req.url, password: req.headers['x-panel-password'] });
@@ -63,19 +135,24 @@ test('lokalny panel przekazuje /api do bota z hasłem i serwuje frontend', async
   });
   await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
   const botUrl = `http://127.0.0.1:${upstream.address().port}/functions/v1/hopkostki-bot`;
-  const panel = createPanelServer({ botUrl, password: 'tajne' });
+  const panel = createPanelServer({ botUrl });
   await new Promise((resolve) => panel.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${panel.address().port}`;
   try {
-    assert.deepEqual(await (await fetch(`${base}/api/cases?page=2`)).json(), { ok: true });
-    assert.deepEqual(seen[0], { method: 'GET', url: '/functions/v1/hopkostki-bot/panel/cases?page=2', password: 'tajne' });
-
-    const blocked = await fetch(`${base}/api/config`, { method: 'PUT', body: '{}' });
-    assert.equal(blocked.status, 403, 'zapis bez nagłówka panelu');
-
+    // Statyka: serwowana lokalnie, bez pytania bota.
     const page = await fetch(`${base}/`);
     assert.match(await page.text(), /Panel — Entuzjaści Hopkostki/);
-    assert.equal((await fetch(`${base}/..%2F..%2Fpackage.json`)).status, 404);
+    assert.equal((await fetch(`${base}/app.js`)).headers.get('content-type'), 'text/javascript; charset=utf-8');
+    assert.equal((await fetch(`${base}/style.css`)).headers.get('content-type'), 'text/css; charset=utf-8');
+    assert.equal(seen.length, 0);
+
+    // Wszystko inne: przekazane 1:1 do bota razem z hasłem, jakie wysłała przeglądarka.
+    assert.deepEqual(await (await fetch(`${base}/cases?page=2`, { headers: { 'x-panel-password': 'tajne' } })).json(), { ok: true });
+    assert.deepEqual(seen[0], { method: 'GET', url: '/functions/v1/hopkostki-bot/panel/cases?page=2', password: 'tajne' });
+
+    const write = await fetch(`${base}/config`, { method: 'PUT', body: '{}', headers: { 'x-panel-password': 'inne' } });
+    assert.equal(write.status, 200, 'proxy nie blokuje zapisów — hasło sprawdza sam bot');
+    assert.equal(seen[1].password, 'inne');
 
     const evil = await new Promise((resolve) => {
       http.get({ host: '127.0.0.1', port: panel.address().port, path: '/', headers: { Host: 'evil.example.com' } }, (res) => resolve(res.statusCode));

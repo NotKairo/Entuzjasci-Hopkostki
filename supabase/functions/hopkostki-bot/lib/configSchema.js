@@ -3,10 +3,13 @@
 
 import { DEFAULT_CONFIG } from './defaults.js';
 import { isValidUnit } from './duration.js';
+import { COMMAND_MAP } from './commands.js';
 
 const SNOWFLAKE = /^\d{15,25}$/;
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 export const ESCALATION_ACTIONS = ['alert', 'timeout', 'kick', 'ban'];
+export const ACTIVITY_TYPES = ['custom', 'playing', 'listening', 'watching', 'competing'];
+export const PRESENCE_STATUSES = ['online', 'idle', 'dnd'];
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -18,7 +21,8 @@ export function mergeWithDefaults(defaults, stored) {
   const out = {};
   for (const [key, def] of Object.entries(defaults)) {
     const value = stored[key];
-    if (isPlainObject(def)) out[key] = mergeWithDefaults(def, value);
+    if (key === 'commandPermissions') out[key] = isPlainObject(value) ? structuredClone(value) : {};
+    else if (isPlainObject(def)) out[key] = mergeWithDefaults(def, value);
     else if (Array.isArray(def)) out[key] = Array.isArray(value) ? structuredClone(value) : structuredClone(def);
     else out[key] = value === undefined ? def : value;
   }
@@ -43,12 +47,38 @@ function cleanRules(rules, fallback) {
     .sort((a, b) => a.points - b.points);
 }
 
+function cleanActivities(list, fallback) {
+  if (!Array.isArray(list)) return fallback;
+  return list
+    .slice(0, 10)
+    .map((a) => ({ type: String(a?.type), text: String(a?.text ?? '').trim().slice(0, 128) }))
+    .filter((a) => ACTIVITY_TYPES.includes(a.type) && a.text);
+}
+
+// { nazwaKomendy: ['idRoli', ...] } — tylko prawdziwe nazwy komend, tylko poprawne ID ról, maks. 25 ról każda.
+function cleanCommandPermissions(input, current) {
+  if (!isPlainObject(input)) return current ?? {};
+  const out = {};
+  for (const [name, ids] of Object.entries(input)) {
+    if (!COMMAND_MAP.has(name) || !Array.isArray(ids)) continue;
+    out[name] = [...new Set(ids.map(String).filter((id) => SNOWFLAKE.test(id)))].slice(0, 25);
+  }
+  return out;
+}
+
 function cleanValue(path, input, current, def) {
+  if (path === 'commandPermissions') return cleanCommandPermissions(input, current);
   if (path === 'modRoleIds') {
     if (!Array.isArray(input)) return current;
     return [...new Set(input.map(String).filter((id) => SNOWFLAKE.test(id)))];
   }
   if (path === 'escalation.rules') return cleanRules(input, current);
+  if (path === 'presence.activities') return cleanActivities(input, current);
+  if (path === 'presence.status') return PRESENCE_STATUSES.includes(input) ? input : current;
+  if (path === 'presence.rotateSeconds') {
+    const n = Math.floor(Number(input));
+    return Number.isFinite(n) ? Math.min(3600, Math.max(15, n)) : current;
+  }
   if (path === 'modLogChannelId' || path === 'announceChannelId') {
     if (input === '' || input === null) return '';
     return SNOWFLAKE.test(String(input)) ? String(input) : current;

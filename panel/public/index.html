@@ -8,7 +8,18 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="app" class="layout">
+  <div id="login-gate" class="login-gate">
+    <form id="login-form" class="login-card">
+      <div class="logo big">🫓</div>
+      <h2>Panel — Entuzjaści Hopkostki</h2>
+      <p class="muted">Podaj hasło panelu. Znajdziesz je w Supabase → Edge Functions → Secrets → <code>PANEL_PASSWORD</code>, albo — jeśli nikt go tam nie ustawił — bot wygenerował je sam (zapytaj administratora / sprawdź stan bota).</p>
+      <input type="password" id="login-password" placeholder="Hasło panelu" autocomplete="current-password" required>
+      <p class="error-text" id="login-error"></p>
+      <button type="submit" class="btn primary" id="login-submit">Zaloguj</button>
+    </form>
+  </div>
+
+  <div id="app" class="layout hidden">
     <aside class="sidebar">
       <div class="brand">
         <img id="bot-avatar" class="avatar" alt="" hidden>
@@ -21,12 +32,14 @@
       <nav id="nav">
         <a href="#pulpit" data-view="pulpit">📊 <span>Pulpit</span></a>
         <a href="#ustawienia" data-view="ustawienia">⚙️ <span>Ustawienia</span></a>
+        <a href="#uprawnienia" data-view="uprawnienia">🔑 <span>Uprawnienia</span></a>
         <a href="#embedy" data-view="embedy">🎨 <span>Wygląd embedów</span></a>
         <a href="#ostrzezenia" data-view="ostrzezenia">⚠️ <span>Ostrzeżenia</span></a>
         <a href="#sprawy" data-view="sprawy">🗂️ <span>Sprawy</span></a>
         <a href="#bany" data-view="bany">⛔ <span>Tymczasowe bany</span></a>
       </nav>
       <a class="side-link" href="https://supabase.com/dashboard/project/ucjmbdogtzztrkorqzjq" target="_blank" rel="noopener">☁️ Supabase</a>
+      <button type="button" class="side-link" id="logout-btn">🚪 Wyloguj</button>
     </aside>
 
     <main>
@@ -113,6 +126,56 @@
             </label>
             <div class="chips" id="emoji-picks"></div>
           </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h3>🟢 Status i opisy bota</h3>
+            <span class="muted small" id="gateway-line"></span>
+          </div>
+          <p class="muted small">Bot łączy się z Discordem co minutę (gateway), dzięki czemu świeci na zielono i pokazuje poniższe opisy — zmieniają się co ustawioną liczbę sekund.</p>
+          <div class="grid two tight">
+            <label class="field"><span>Status</span>
+              <select data-path="presence.status">
+                <option value="online">🟢 Dostępny</option>
+                <option value="idle">🌙 Zaraz wracam</option>
+                <option value="dnd">⛔ Nie przeszkadzać</option>
+              </select>
+            </label>
+            <label class="field"><span>Zmiana opisu co (sekundy, min. 15)</span><input type="number" min="15" max="3600" data-path="presence.rotateSeconds"></label>
+          </div>
+          <label class="toggle"><input type="checkbox" data-path="presence.enabled"><span></span>Pokazuj opisy w statusie</label>
+          <div class="table-wrap"><table class="table compact" id="activities-table"></table></div>
+          <div class="placeholders">
+            <button type="button" class="btn ghost" id="add-activity">+ Dodaj opis</button>
+            <span class="muted small">Zmienne:</span>
+            <div class="chips" id="presence-chips"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>🔒 Hasło panelu</h3>
+          <p class="muted small" id="password-status">—</p>
+          <form id="password-form" class="grid two tight">
+            <label class="field"><span>Nowe hasło (min. 8 znaków)</span><input type="password" id="password-new" autocomplete="new-password" minlength="8"></label>
+            <label class="field"><span>Powtórz nowe hasło</span><input type="password" id="password-repeat" autocomplete="new-password" minlength="8"></label>
+            <button type="submit" class="btn primary" id="password-submit">Zmień hasło</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- UPRAWNIENIA -->
+      <section id="view-uprawnienia" class="view">
+        <header class="view-head">
+          <h2>Uprawnienia</h2>
+          <p class="muted">Domyślnie o dostępie decydują uprawnienia Discorda danej roli (np. „Banowanie członków”) oraz lista ról moderatorów z zakładki Ustawienia. Tutaj możesz ograniczyć pojedynczą komendę do wybranych ról — niezależnie od uprawnień Discorda.</p>
+        </header>
+        <div class="card">
+          <h3>🎛️ Nadpisania dla komend</h3>
+          <div id="permission-commands" class="perm-commands"></div>
+        </div>
+        <div class="card">
+          <h3>📋 Kto może użyć jakiej komendy — podgląd na żywo</h3>
+          <p class="muted small">Liczone z ról serwera, uprawnień Discorda, listy moderatorów i nadpisań powyżej. Rola <code>@everyone</code> i role zarządzane przez integracje nie są pokazane.</p>
+          <div class="table-wrap"><table class="table compact" id="permission-matrix"></table></div>
         </div>
       </section>
 
