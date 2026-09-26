@@ -10,6 +10,7 @@ export const P = {
   SEND_MESSAGES: 1n << 11n,
   MANAGE_MESSAGES: 1n << 13n,
   EMBED_LINKS: 1n << 14n,
+  ATTACH_FILES: 1n << 15n,
   READ_MESSAGE_HISTORY: 1n << 16n,
   MENTION_EVERYONE: 1n << 17n,
   USE_EXTERNAL_EMOJIS: 1n << 18n,
@@ -21,6 +22,9 @@ export const P = {
   SEND_MESSAGES_IN_THREADS: 1n << 38n,
   MODERATE_MEMBERS: 1n << 40n,
 };
+
+// Na liście ról komendy: „wszyscy” (także osoby bez żadnej roli).
+export const EVERYONE = 'everyone';
 
 // Nazwy uprawnień do wyświetlenia w panelu (zakładka "Uprawnienia").
 export const PERMISSION_LABELS = {

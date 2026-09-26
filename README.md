@@ -65,6 +65,9 @@ W panelu są:
   status i rotujące opisy bota oraz hasło panelu.
 - **Uprawnienia:** dla każdej komendy możesz nadpisać domyślne uprawnienie Discorda i ograniczyć ją do
   wybranych ról — plus tabela pokazująca na żywo, która rola może użyć której komendy.
+- **Nowe osoby:** automatyczne role po wejściu (osobno dla ludzi i botów), powitanie, pożegnanie i log
+  wejść/wyjść z wiekiem konta.
+- **Tickety:** panel z przyciskami, prywatne kanały ticketów, zapis rozmów — patrz niżej.
 - **Kanały głosowe:** kanały na żądanie — patrz niżej.
 - **Wiadomości:** wysyłanie wiadomości (treść + embed) z przyciskami ról albo listą wyboru ról; wysłane można
   potem edytować albo usunąć.
@@ -85,17 +88,30 @@ dostaje własny kanał i jest na niego przenoszony; pusty kanał znika sam. Na c
 właściciela**, **Zmień limit**, **Zbanuj**, **Wyrzuć** — osoby wybiera się z listy, nazwę i limit wpisuje w
 okienku. Z panelu korzysta właściciel kanału (oraz osoby z uprawnieniem „Zarządzanie kanałami”).
 
+### Tickety
+
+W zakładce **Tickety** włączasz tickety, wybierasz kategorię, kanał logów i role obsługi, a potem wysyłasz
+**panel ticketów** (wiadomość z przyciskami — każdy przycisk to rodzaj ticketu, opcjonalnie z pytaniem w
+okienku). Kliknięcie tworzy prywatny kanał widoczny tylko dla tej osoby i obsługi, z przyciskami **Zamknij**
+(z potwierdzeniem), **Przejmij** i **Dodaj osobę**. Po zamknięciu zapis rozmowy (.txt) trafia do logów ticketów
+i w DM do autora, a kanał znika.
+
+### Intencje Discorda
+
+Powitania, autorole i log wejść potrzebują intencji **Server Members**, a zapis rozmów w ticketach — **Message
+Content**. Bot włącza je sam (wersje „limited” dla botów na mniej niż 100 serwerach) po zapisaniu ustawień; jeśli
+się nie uda, panel pokaże, gdzie włączyć je ręcznie (Developer Portal → Bot → Privileged Gateway Intents).
+
 ### Uprawnienia — kto może użyć jakiej komendy
 
-Domyślnie o dostępie do komendy decyduje: (1) administratorzy serwera — zawsze, (2) odpowiednie uprawnienie
-Discorda (np. „Banowanie członków” do `/ban`) i (3) rola z listy **moderatorów** w Ustawieniach — ona daje
-dostęp do wszystkich komend wymagających uprawnień. Komendy bez wymaganego uprawnienia (`/serwer`, `/avatar`,
-`/pomoc`) są otwarte dla każdego.
+Każda komenda ma **własną listę ról** (zakładka **Uprawnienia**): role dodajesz przez „+ Dodaj rolę”, usuwasz
+krzyżykiem, a „Szybkie zmiany” dodają lub usuwają jedną rolę naraz ze wszystkich komend. Listy zostały
+ustawione według tego, kto miał dostęp wcześniej (uprawnienia Discorda + role moderatorów); nowe komendy
+dostają listę automatycznie. Administratorzy mogą zawsze wszystko, pusta lista = tylko administratorzy,
+„Wszyscy (@everyone)” = każdy. Tabela na dole pokazuje na żywo, która rola może użyć której komendy.
 
-W zakładce **Uprawnienia** możesz to nadpisać dla **pojedynczej komendy** — zaznacz „Ogranicz do wybranych
-ról” i wybierz dokładnie te role, które mają jej używać. Wtedy liczy się TYLKO ta lista (plus administratorzy),
-niezależnie od uprawnień Discorda i listy moderatorów. Tabela na dole tej zakładki liczy się na żywo z ról
-serwera i pokazuje dokładnie, kto ma dostęp do czego.
+Rola bez uprawnienia Discorda do danej komendy nie zobaczy jej na liście komend w Discordzie, dopóki nie
+zezwolisz jej w *Ustawienia serwera → Integracje → bot*.
 
 ### Uruchomienie panelu lokalnie (opcjonalnie)
 

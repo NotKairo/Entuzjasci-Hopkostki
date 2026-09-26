@@ -2,7 +2,7 @@
 // Każda komenda: { data, permission, defer: 'action' | 'public' | 'ephemeral', execute(ix, bot), autocomplete? }
 
 import { UNIT_CHOICES, MAX_TIMEOUT_MS, toMs, discordTimestamp } from './duration.js';
-import { P, has, highestPosition, permissionLabel } from './permissions.js';
+import { P, has, highestPosition, permissionLabel, EVERYONE } from './permissions.js';
 import * as embeds from './embeds.js';
 import { avatarUrl, guildIconUrl } from './rest.js';
 import {
@@ -885,3 +885,31 @@ export const COMMAND_META = COMMANDS.map((c) => ({
   permission: c.permission ? String(c.permission) : null,
   permissionLabel: permissionLabel(c.permission),
 }));
+
+// Domyślne listy ról dla każdej komendy = kto może jej użyć teraz (uprawnienie Discorda albo rola moderatora).
+// Administratorzy mają dostęp zawsze, więc nie ma ich na listach; komendy bez wymagań dostają „wszystkich”.
+export function commandPermissionDefaults(rawRoles, guildId, config) {
+  const roles = rawRoles
+    .filter((r) => r.id !== guildId && !r.managed && !has(r.permissions, P.ADMINISTRATOR))
+    .sort((a, b) => b.position - a.position);
+  const out = {};
+  for (const c of COMMANDS) {
+    out[c.data.name] = c.permission
+      ? roles.filter((r) => has(r.permissions, c.permission) || config.modRoleIds.includes(r.id)).map((r) => r.id)
+      : [EVERYONE];
+  }
+  return out;
+}
+
+// Każda komenda ma mieć własną listę ról (zakładka Uprawnienia). Uzupełnia brakujące (reset = wszystkie od nowa).
+export async function fillCommandPermissions(bot, { reset = false } = {}) {
+  const config = await bot.store.getConfig();
+  const current = config.commandPermissions ?? {};
+  const missing = COMMANDS.map((c) => c.data.name).filter((name) => reset || !Array.isArray(current[name]));
+  if (!missing.length) return { changed: 0, config };
+  const gctx = await getGuildContext(bot);
+  const defaults = commandPermissionDefaults(gctx.rawRoles, gctx.guild.id, config);
+  const next = { ...current };
+  for (const name of missing) next[name] = defaults[name];
+  return { changed: missing.length, config: await bot.store.updateConfig({ commandPermissions: next }) };
+}

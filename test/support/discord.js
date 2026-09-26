@@ -48,6 +48,7 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
     channelEdits: [],
     editedMessages: [],
     removedOverwrites: [],
+    appFlags: 0,
   };
 
   const channelMessages = (id) => {
@@ -64,11 +65,13 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
   };
 
   const routes = [
-    ['GET', /^\/applications\/@me$/, () => ({ id: 'app', name: 'Hopkostki', verify_key: state.verifyKey ?? 'aa', bot: users.get('bot'), interactions_endpoint_url: state.endpoint })],
+    ['GET', /^\/applications\/@me$/, () => ({ id: 'app', name: 'Hopkostki', verify_key: state.verifyKey ?? 'aa', bot: users.get('bot'), interactions_endpoint_url: state.endpoint, flags: state.appFlags })],
     ['PATCH', /^\/applications\/@me$/, (m, body) => {
-      state.endpoint = body.interactions_endpoint_url;
-      return { id: 'app', interactions_endpoint_url: state.endpoint };
+      if ('interactions_endpoint_url' in body) state.endpoint = body.interactions_endpoint_url;
+      if ('flags' in body) state.appFlags = body.flags;
+      return { id: 'app', interactions_endpoint_url: state.endpoint, flags: state.appFlags };
     }],
+    ['GET', /^\/guilds\/g1\/members$/, () => [...members.values()].map((m) => ({ joined_at: new Date().toISOString(), pending: false, ...m }))],
     ['GET', /^\/users\/@me\/guilds$/, () => [{ id: GUILD, name: 'Entuzjaści Hopkostki' }]],
     ['GET', /^\/gateway\/bot$/, () => ({ url: 'wss://gateway.example', shards: 1, session_start_limit: { total: 1000, remaining: state.identifyRemaining ?? 1000 } })],
     ['PUT', /^\/applications\/app\/guilds\/g1\/commands$/, (m, body) => {
@@ -154,7 +157,7 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
       if (message) message.reactions = [{ me: true, emoji: { name: decodeURIComponent(emoji), id: null } }];
       return null;
     }],
-    ['GET', /^\/channels\/([\w-]+)$/, ([, id]) => ({ id, permission_overwrites: state.overwrites.has(id) ? [state.overwrites.get(id)] : [] })],
+    ['GET', /^\/channels\/([\w-]+)$/, ([, id]) => (state.deletedChannels.includes(id) ? notFound(10003) : { id, permission_overwrites: state.overwrites.has(id) ? [state.overwrites.get(id)] : [] })],
     ['PUT', /^\/channels\/([\w-]+)\/permissions\/(\w+)$/, ([, id, target], body) => {
       state.overwrites.set(id, { id: target, ...body });
       return null;
@@ -190,7 +193,7 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
   ];
 
   async function request(method, path, opts = {}) {
-    state.calls.push({ method, path, body: opts.body, reason: opts.reason, query: opts.query });
+    state.calls.push({ method, path, body: opts.body, reason: opts.reason, query: opts.query, files: opts.files });
     for (const [m, pattern, handler] of routes) {
       const match = m === method && pattern.exec(path);
       if (match) return structuredClone(handler(match, opts.body, opts) ?? null);

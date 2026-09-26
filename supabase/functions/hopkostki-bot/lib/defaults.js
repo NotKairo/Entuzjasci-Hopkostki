@@ -71,6 +71,41 @@ export const DEFAULT_CONFIG = {
     },
   },
 
+  // Tickety: przycisk w wiadomości-panelu tworzy prywatny kanał dla tej osoby i obsługi.
+  // Zmienne: {uzytkownik} {nick} {numer}. types: przyciski w panelu (question = pytanie w okienku, puste = bez okienka).
+  tickets: {
+    enabled: false,
+    categoryId: '',
+    supportRoleIds: [],
+    logChannelId: '',
+    maxOpen: 1,
+    nameTemplate: 'ticket-{numer}',
+    dmTranscript: true,
+    welcome: 'Cześć {uzytkownik}! Opisz dokładnie swoją sprawę — ktoś z obsługi zaraz odpowie.',
+    panel: {
+      title: 'Pomoc i zgłoszenia',
+      description: 'Masz problem albo pytanie do administracji? Kliknij przycisk poniżej — utworzymy prywatny kanał, na którym ktoś Ci odpowie.',
+      color: '#5865F2',
+    },
+    types: [{ label: 'Otwórz ticket', style: 'niebieski', question: 'Opisz krótko swoją sprawę' }],
+  },
+
+  // Nowe osoby na serwerze. Wymaga intencji „Server Members” — bot włącza ją sam, gdy coś tu jest włączone.
+  // Zmienne w wiadomościach: {uzytkownik} {nick} {serwer} {liczba}
+  members: {
+    autoRole: { enabled: false, roleIds: [], botRoleIds: [] },
+    welcome: {
+      enabled: false,
+      channelId: '',
+      title: 'Witaj na serwerze!',
+      message: 'Cześć {uzytkownik}! Witamy na **{serwer}** — jesteś naszym **{liczba}.** członkiem.',
+      color: '#57F287',
+    },
+    goodbye: { enabled: false, channelId: '', message: '**{nick}** opuścił(a) serwer. Zostało nas {liczba}.' },
+    // Wejścia i wyjścia (z wiekiem konta) w kanale logów moderacji — pomaga wyłapać multikonta.
+    logJoins: false,
+  },
+
   // Automatyczne kary po przekroczeniu progu aktywnych punktów ostrzeżeń.
   // action: alert (tylko powiadomienie w logach) | timeout | kick | ban
   escalation: {

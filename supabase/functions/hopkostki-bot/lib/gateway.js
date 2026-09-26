@@ -4,13 +4,24 @@
 // i od razu dodaje 🫓 pod odpowiedziami na wiadomości o karach (cron zostaje jako zapas).
 
 import { reactionPath } from './rest.js';
-import { getGuildContext } from './moderation.js';
+import { getApp, getGuildContext } from './moderation.js';
 import { syncGuildVoiceStates, onVoiceStateUpdate } from './voice.js';
+import { membersFeaturesOn, membersIntentOn, onMemberJoin, onMemberLeave, onMemberUpdate } from './members.js';
 
 const QUERY = '/?v=10&encoding=json';
 // GUILDS (lista osób na kanałach głosowych przy logowaniu) + GUILD_VOICE_STATES (wejścia/wyjścia z kanałów)
 // + GUILD_MESSAGES (odpowiedzi na wiadomości o karach — bez treści, wystarczy message_reference).
 export const INTENTS = (1 << 0) | (1 << 7) | (1 << 9);
+// GUILD_MEMBERS (uprzywilejowana) — tylko gdy włączone powitania/autorole i aplikacja ma tę intencję,
+// inaczej Discord odrzuciłby logowanie (4014) i bot straciłby status i kanały głosowe.
+const GUILD_MEMBERS = 1 << 1;
+
+async function sessionIntents(bot) {
+  const config = await bot.store.getConfig();
+  if (!membersFeaturesOn(config)) return INTENTS;
+  const app = await getApp(bot).catch(() => null);
+  return membersIntentOn(app) ? INTENTS | GUILD_MEMBERS : INTENTS;
+}
 const OP = { DISPATCH: 0, HEARTBEAT: 1, IDENTIFY: 2, PRESENCE: 3, RESUME: 6, RECONNECT: 7, INVALID_SESSION: 9, HELLO: 10, ACK: 11 };
 // 4004 zły token, 4010–4014 błędna konfiguracja — ponawianie nic nie da.
 const FATAL = new Map([
@@ -110,9 +121,10 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function connectOnce(bot, { WebSocketImpl, deadline, margin, status }) {
   const saved = await bot.store.getState('gateway_session');
+  const intents = await sessionIntents(bot);
   // Wznowiona sesja ma intencje z chwili logowania — po ich zmianie trzeba zalogować się od nowa.
   const resuming = Boolean(
-    saved?.sessionId && saved?.resumeUrl && saved.intents === INTENTS && Date.now() - (saved.savedAt ?? 0) < RESUME_WINDOW_MS,
+    saved?.sessionId && saved?.resumeUrl && saved.intents === intents && Date.now() - (saved.savedAt ?? 0) < RESUME_WINDOW_MS,
   );
   let url = saved?.resumeUrl;
   if (!resuming) {
@@ -200,7 +212,7 @@ async function connectOnce(bot, { WebSocketImpl, deadline, margin, status }) {
       for (const id of timers) clearTimeout(id);
       await Promise.allSettled([...pending]);
       if (session && !outcome.reset) {
-        await bot.store.setState('gateway_session', { ...session, seq, intents: INTENTS, savedAt: Date.now() }).catch(() => {});
+        await bot.store.setState('gateway_session', { ...session, seq, intents, savedAt: Date.now() }).catch(() => {});
       }
       resolve(outcome);
     }
@@ -227,7 +239,7 @@ async function connectOnce(bot, { WebSocketImpl, deadline, margin, status }) {
                 const { activity } = pickActivity(config.presence);
                 send(OP.IDENTIFY, {
                   token: bot.env.token,
-                  intents: INTENTS,
+                  intents,
                   properties: { os: 'linux', browser: 'hopkostki-bot', device: 'hopkostki-bot' },
                   presence: presencePayload(config.presence, activity, await presenceVars(bot)),
                 });
@@ -254,7 +266,7 @@ async function connectOnce(bot, { WebSocketImpl, deadline, margin, status }) {
             session = { sessionId: packet.d.session_id, resumeUrl: packet.d.resume_gateway_url };
             status.mode = 'identify';
             status.connectedAt = Date.now();
-            track(bot.store.setState('gateway_session', { ...session, seq, intents: INTENTS, savedAt: Date.now() }));
+            track(bot.store.setState('gateway_session', { ...session, seq, intents, savedAt: Date.now() }));
             track(updatePresence());
           } else if (packet.t === 'RESUMED') {
             status.mode = 'resume';
@@ -266,6 +278,12 @@ async function connectOnce(bot, { WebSocketImpl, deadline, margin, status }) {
             queueVoice(() => syncGuildVoiceStates(bot, packet.d));
           } else if (packet.t === 'VOICE_STATE_UPDATE') {
             queueVoice(() => onVoiceStateUpdate(bot, packet.d));
+          } else if (packet.t === 'GUILD_MEMBER_ADD') {
+            track(onMemberJoin(bot, packet.d));
+          } else if (packet.t === 'GUILD_MEMBER_UPDATE') {
+            track(onMemberUpdate(bot, packet.d));
+          } else if (packet.t === 'GUILD_MEMBER_REMOVE') {
+            track(onMemberLeave(bot, packet.d));
           }
           break;
         default:

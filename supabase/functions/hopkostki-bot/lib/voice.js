@@ -4,7 +4,7 @@
 
 import { P, has } from './permissions.js';
 import { DiscordError } from './rest.js';
-import { resolveGuildId, describeError, ActionError } from './moderation.js';
+import { isOurGuild, describeError, ActionError } from './moderation.js';
 import { colorInt, errorEmbed, successEmbed, COLORS } from './embeds.js';
 
 const EPHEMERAL = 64;
@@ -16,12 +16,6 @@ const BOT_ALLOW = P.VIEW_CHANNEL | P.CONNECT;
 const EMPTY_GRACE_MS = 60_000;
 
 const isGone = (error) => error instanceof DiscordError && (error.status === 404 || error.code === 10003);
-
-async function isOurGuild(bot, guildId) {
-  if (!guildId) return false;
-  if (bot.env.guildId) return guildId === bot.env.guildId;
-  return guildId === (await resolveGuildId(bot).catch(() => null));
-}
 
 export function fillChannelName(template, vars) {
   const name = String(template || 'Kanał {nick}')

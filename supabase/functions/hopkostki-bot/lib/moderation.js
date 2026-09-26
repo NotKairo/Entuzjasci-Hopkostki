@@ -5,7 +5,7 @@
 
 import { DiscordError, messageUrl } from './rest.js';
 import { toMs, MAX_TIMEOUT_MS } from './duration.js';
-import { P, has, rolesById, highestPosition, memberPermissions } from './permissions.js';
+import { P, has, rolesById, highestPosition, memberPermissions, EVERYONE } from './permissions.js';
 import * as embeds from './embeds.js';
 
 export class ActionError extends Error {}
@@ -51,6 +51,13 @@ export async function resolveGuildId(bot) {
   });
 }
 
+// Zdarzenia z gatewaya dotyczą tylko „naszego” serwera.
+export async function isOurGuild(bot, guildId) {
+  if (!guildId) return false;
+  if (bot.env.guildId) return guildId === bot.env.guildId;
+  return guildId === (await resolveGuildId(bot).catch(() => null));
+}
+
 export async function getGuildContext(bot, { force = false } = {}) {
   if (force) bot.cache.delete('guildCtx');
   return cached(bot, 'guildCtx', 60_000, async () => {
@@ -86,7 +93,7 @@ export function hasModAccess(member, permission, config, commandName) {
   if (!member) return false;
   if (has(member.permissions, P.ADMINISTRATOR)) return true;
   const override = commandName ? config.commandPermissions?.[commandName] : undefined;
-  if (Array.isArray(override)) return override.some((id) => member.roles?.includes(id));
+  if (Array.isArray(override)) return override.includes(EVERYONE) || override.some((id) => member.roles?.includes(id));
   if (!permission) return true; // komenda otwarta dla wszystkich (chyba że nadpisano wyżej)
   if (has(member.permissions, permission)) return true;
   return config.modRoleIds.some((id) => member.roles?.includes(id));
@@ -97,7 +104,7 @@ export function hasModAccess(member, permission, config, commandName) {
 export function roleHasAccess(role, permission, config, commandName) {
   if (has(role.permissions, P.ADMINISTRATOR)) return true;
   const override = commandName ? config.commandPermissions?.[commandName] : undefined;
-  if (Array.isArray(override)) return override.includes(role.id);
+  if (Array.isArray(override)) return override.includes(EVERYONE) || override.includes(role.id);
   if (!permission) return true;
   if (has(role.permissions, permission)) return true;
   return config.modRoleIds.includes(role.id);

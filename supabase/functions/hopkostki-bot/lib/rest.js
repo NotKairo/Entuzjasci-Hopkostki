@@ -14,7 +14,8 @@ export class DiscordError extends Error {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function createRest(token, { fetchImpl = fetch, base = API } = {}) {
-  async function request(method, path, { body, reason, query } = {}) {
+  // files: [{ name, content, type? }] — wysyłane jako multipart (np. zapis ticketu w .txt).
+  async function request(method, path, { body, reason, query, files } = {}) {
     const url = new URL(base + path);
     for (const [key, value] of Object.entries(query ?? {})) {
       if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
@@ -23,11 +24,19 @@ export function createRest(token, { fetchImpl = fetch, base = API } = {}) {
       Authorization: `Bot ${token}`,
       'User-Agent': 'DiscordBot (https://github.com/NotKairo/Entuzjasci-Hopkostki, 2.0)',
     };
-    if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (reason) headers['X-Audit-Log-Reason'] = encodeURIComponent(reason.slice(0, 512));
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const res = await fetchImpl(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+      let payload;
+      if (files?.length) {
+        payload = new FormData();
+        payload.append('payload_json', JSON.stringify(body ?? {}));
+        files.forEach((f, i) => payload.append(`files[${i}]`, new Blob([f.content], { type: f.type ?? 'text/plain; charset=utf-8' }), f.name));
+      } else if (body !== undefined) {
+        headers['Content-Type'] = 'application/json';
+        payload = JSON.stringify(body);
+      }
+      const res = await fetchImpl(url, { method, headers, body: payload });
       if (res.status === 429) {
         const data = await res.json().catch(() => ({}));
         const wait = Math.ceil((data.retry_after ?? 1) * 1000);

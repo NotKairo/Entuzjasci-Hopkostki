@@ -8,6 +8,7 @@ const SCHEMA = new URL('../../supabase/migrations/20260925160000_bot_schema.sql'
 // Z migracji notatek bierzemy tylko DDL tabel (harmonogramy pg_cron nie istnieją w PGlite).
 const NOTES = new URL('../../supabase/migrations/20260925213000_bot_notes_gateway.sql', import.meta.url);
 const VOICE = new URL('../../supabase/migrations/20260926160000_bot_voice_messages.sql', import.meta.url);
+const TICKETS = new URL('../../supabase/migrations/20260926200000_bot_tickets.sql', import.meta.url);
 const withoutCron = (sql) => sql.split(/^select cron\.schedule/m)[0];
 const withoutGrants = (sql) => sql.replace(/revoke .*? from anon, authenticated;/g, '');
 let shared = null;
@@ -19,6 +20,7 @@ async function database() {
       await db.exec(withoutGrants(fs.readFileSync(SCHEMA, 'utf8')));
       await db.exec(withoutGrants(withoutCron(fs.readFileSync(NOTES, 'utf8'))));
       await db.exec(withoutGrants(fs.readFileSync(VOICE, 'utf8')));
+      await db.exec(withoutGrants(fs.readFileSync(TICKETS, 'utf8')));
       return db;
     })();
   }
@@ -29,7 +31,7 @@ export async function createTestStore() {
   const db = await database();
   await db.exec(`
     truncate bot.warns, bot.cases, bot.temp_bans, bot.mod_messages, bot.channel_cursors, bot.notes,
-      bot.voice_states, bot.temp_voice, bot.sent_messages restart identity cascade;
+      bot.voice_states, bot.temp_voice, bot.sent_messages, bot.tickets restart identity cascade;
     update bot.config set data = '{}'::jsonb;
     delete from bot.state where key not in ('cron_secret', 'cron_lock');
     update bot.state set value = to_jsonb('1970-01-01T00:00:00Z'::text) where key = 'cron_lock';

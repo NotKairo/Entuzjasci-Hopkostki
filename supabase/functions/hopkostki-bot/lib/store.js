@@ -87,6 +87,25 @@ const TEMP_VOICE_COLUMNS = {
   dashboardMessageId: ['dashboard_message_id', 'text'],
 };
 
+function mapTicket(r) {
+  return {
+    id: r.id,
+    guildId: r.guild_id,
+    channelId: r.channel_id,
+    userId: r.user_id,
+    userTag: r.user_tag,
+    type: r.type,
+    subject: r.subject,
+    status: r.status,
+    claimedBy: r.claimed_by,
+    closedBy: r.closed_by,
+    createdAt: ms(r.created_at),
+    closedAt: ms(r.closed_at),
+  };
+}
+
+const TICKET_COLUMNS = { channelId: 'channel_id', status: 'status', claimedBy: 'claimed_by', closedBy: 'closed_by' };
+
 function mapSentMessage(r) {
   return { id: r.id, channelId: r.channel_id, messageId: r.message_id, data: r.data, createdAt: ms(r.created_at), updatedAt: ms(r.updated_at) };
 }
@@ -452,6 +471,43 @@ export function createStore(query, { configTtlMs = 10_000 } = {}) {
 
     async deleteTempVoice(channelId) {
       await query('delete from bot.temp_voice where channel_id = $1::text', [channelId]);
+    },
+
+    // ---------- Tickety ----------
+    async addTicket({ guildId, userId, userTag, type, subject }) {
+      const row = await one(
+        `insert into bot.tickets (guild_id, user_id, user_tag, type, subject)
+         values ($1::text, $2::text, $3::text, $4::text, $5::text) returning *`,
+        [guildId, userId, userTag ?? null, type ?? null, subject || null],
+      );
+      return mapTicket(row);
+    },
+
+    async getTicket(id) {
+      const row = await one('select * from bot.tickets where id = $1::int', [id]);
+      return row ? mapTicket(row) : null;
+    },
+
+    async openTicketsForUser(userId) {
+      return (await query(`select * from bot.tickets where user_id = $1::text and status = 'open' order by id`, [userId])).map(mapTicket);
+    },
+
+    async listTickets({ limit = 50 } = {}) {
+      return (await query('select * from bot.tickets order by id desc limit $1::int', [limit])).map(mapTicket);
+    },
+
+    // closed_at ustawia się samo przy zmianie statusu na "closed".
+    async updateTicket(id, patch) {
+      const entries = Object.entries(patch).filter(([key]) => TICKET_COLUMNS[key]);
+      if (!entries.length) return store.getTicket(id);
+      const sets = entries.map(([key], i) => `${TICKET_COLUMNS[key]} = $${i + 2}::text`);
+      if (patch.status === 'closed') sets.push('closed_at = now()');
+      const row = await one(`update bot.tickets set ${sets.join(', ')} where id = $1::int returning *`, [id, ...entries.map(([, v]) => v)]);
+      return row ? mapTicket(row) : null;
+    },
+
+    async deleteTicket(id) {
+      await query('delete from bot.tickets where id = $1::int', [id]);
     },
 
     // ---------- Wiadomości wysłane z panelu ----------

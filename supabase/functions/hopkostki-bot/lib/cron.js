@@ -3,11 +3,12 @@
 // - zdejmowanie wygasłych tymczasowych banów i usuwanie wygasłych ostrzeżeń,
 // - reakcje 🫓 pod odpowiedziami na wiadomości o karach (zapas, gdyby sesja gateway coś przegapiła).
 
-import { commandDefinitions } from './commands.js';
+import { commandDefinitions, fillCommandPermissions } from './commands.js';
 import { getApp, resolveGuildId, expireTempBan, logExpiredWarns } from './moderation.js';
 import { reactionPath } from './rest.js';
 import { sha256Hex } from './verify.js';
 import { cleanupTempVoice } from './voice.js';
+import { autoRoleSweep, ensureIntentFlags } from './members.js';
 
 const SETUP_EVERY_MS = 10 * 60_000;
 const PAGES_PER_CHANNEL = 5;
@@ -50,6 +51,8 @@ export async function ensureSetup(bot, { force = false } = {}) {
     }
   }
 
+  const intents = await ensureIntentFlags(bot, await bot.store.getConfig()).catch((error) => ({ error: error.message }));
+
   const setup = {
     ok: !endpointError,
     checkedAt: Date.now(),
@@ -60,6 +63,7 @@ export async function ensureSetup(bot, { force = false } = {}) {
     commandsRegisteredAt,
     endpoint,
     endpointError,
+    intents,
   };
   await bot.store.setState('setup', setup);
   return setup;
@@ -134,6 +138,8 @@ export async function runCron(bot, { force = false } = {}) {
     });
     report.reactions = await step('reactions', () => pollReplies(bot));
     report.tempVoice = await step('tempVoice', () => cleanupTempVoice(bot));
+    report.permissions = await step('permissions', async () => (await fillCommandPermissions(bot)).changed);
+    report.autoRole = await step('autoRole', () => autoRoleSweep(bot));
     await step('prune', () => bot.store.pruneModMessages(30));
     await bot.store.setState('cron_last_run', { at: Date.now(), report });
   } finally {

@@ -2,13 +2,15 @@
 // z nagłówkiem x-panel-password — samo API działa na Supabase razem z botem.
 
 import { DEFAULT_CONFIG } from './defaults.js';
-import { getGuildContext, unbanUser, sendModLog, describeError, ActionError } from './moderation.js';
+import { getApp, getGuildContext, unbanUser, sendModLog, describeError, ActionError } from './moderation.js';
 import { avatarUrl, guildIconUrl, DiscordError } from './rest.js';
 import { simpleEmbed } from './embeds.js';
 import { ensureSetup } from './cron.js';
-import { COMMAND_META } from './commands.js';
+import { COMMAND_META, fillCommandPermissions } from './commands.js';
 import { P, has, highestPosition, memberPermissions, permissionLabel } from './permissions.js';
 import { sendPanelMessage, editPanelMessage, deletePanelMessage } from './messages.js';
+import { sendTicketPanel, closeTicket } from './tickets.js';
+import { ensureIntentFlags, membersIntentOn, contentIntentOn } from './members.js';
 
 const TEXT_CHANNELS = new Set([0, 5]);
 const byPosition = (a, b) => a.position - b.position;
@@ -64,6 +66,7 @@ async function guildInfo(bot) {
   const botPosition = highestPosition(gctx.botMember.roles, gctx.roles);
   const botPerms = memberPermissions(gctx.botMember.roles, gctx.roles, gctx.guild.id);
   const missing = (list) => list.filter((p) => !has(botPerms, p)).map((p) => permissionLabel(p));
+  const app = await getApp(bot).catch(() => null);
   return {
     channels: channels.filter((c) => TEXT_CHANNELS.has(c.type)).sort(byPosition).map(withCategory),
     voiceChannels: channels.filter((c) => c.type === 2).sort(byPosition).map(withCategory),
@@ -84,6 +87,9 @@ async function guildInfo(bot) {
     bot: {
       missingVoice: missing([P.MANAGE_CHANNELS, P.MOVE_MEMBERS, P.CONNECT, P.MANAGE_ROLES]),
       missingRoles: missing([P.MANAGE_ROLES]),
+      missingTickets: missing([P.MANAGE_CHANNELS, P.MANAGE_ROLES]),
+      membersIntent: membersIntentOn(app),
+      contentIntent: contentIntentOn(app),
     },
   };
 }
@@ -104,7 +110,37 @@ export async function handlePanel(bot, { method, path, query = {}, body = {} }) 
   if (method === 'GET' && path === '/status') return ok(await status(bot));
   if (method === 'GET' && path === '/guild') return ok(await guildInfo(bot));
   if (method === 'GET' && path === '/config') return ok({ config: await store.getConfig(), defaults: DEFAULT_CONFIG });
-  if (method === 'PUT' && path === '/config') return ok({ config: await store.updateConfig(body ?? {}) });
+  if (method === 'PUT' && path === '/config') {
+    const config = await store.updateConfig(body ?? {});
+    // Włączone powitania/autorole/tickety potrzebują intencji aplikacji — włączamy je od razu, nie czekając na crona.
+    const intents = bot.discord ? await ensureIntentFlags(bot, config).catch((error) => ({ error: error.message })) : null;
+    return ok({ config, intents });
+  }
+
+  // Listy ról komend od nowa według obecnych uprawnień Discorda (reset) albo tylko dla brakujących komend.
+  if (method === 'POST' && path === '/permissions/defaults') {
+    if (!bot.discord) return fail(503, 'Bot nie jest skonfigurowany (brak DISCORD_TOKEN).');
+    return attempt(async () => (await fillCommandPermissions(bot, { reset: body?.reset === true })));
+  }
+
+  // Tickety.
+  if (method === 'GET' && path === '/tickets') {
+    return ok({ tickets: await store.listTickets({ limit: 50 }), panel: await store.getState('ticket_panel') });
+  }
+  if (method === 'POST' && path === '/tickets/panel') {
+    if (!bot.discord) return fail(503, 'Bot nie jest skonfigurowany (brak DISCORD_TOKEN).');
+    return attempt(async () => ({ panel: await sendTicketPanel(bot, String(body?.channelId ?? '')) }));
+  }
+  const ticketMatch = /^\/tickets\/(\d+)\/close$/.exec(path);
+  if (method === 'POST' && ticketMatch) {
+    const ticket = await store.getTicket(Number(ticketMatch[1]));
+    if (!ticket || ticket.status !== 'open') return fail(404, 'Nie ma takiego otwartego ticketu');
+    return attempt(async () => {
+      const { botUser } = await getGuildContext(bot);
+      await closeTicket(bot, ticket, botUser);
+      return { ok: true };
+    });
+  }
   if (method === 'GET' && path === '/commands') return ok({ commands: COMMAND_META });
 
   if (method === 'POST' && path === '/setup') {

@@ -6,6 +6,8 @@ import { isValidUnit } from './duration.js';
 import { COMMAND_MAP } from './commands.js';
 
 const SNOWFLAKE = /^\d{15,25}$/;
+const EVERYONE = 'everyone';
+export const BUTTON_STYLE_NAMES = ['niebieski', 'szary', 'zielony', 'czerwony'];
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 export const ESCALATION_ACTIONS = ['alert', 'timeout', 'kick', 'ban'];
 export const ACTIVITY_TYPES = ['custom', 'playing', 'listening', 'watching', 'competing'];
@@ -70,22 +72,42 @@ function cleanGenerators(list, fallback) {
     .filter((g) => SNOWFLAKE.test(g.hubId) && !seen.has(g.hubId) && seen.add(g.hubId));
 }
 
-// { nazwaKomendy: ['idRoli', ...] } — tylko prawdziwe nazwy komend, tylko poprawne ID ról, maks. 25 ról każda.
+function cleanRoleIds(input, { everyone = false, max = 50 } = {}) {
+  return [...new Set(input.map(String).filter((id) => SNOWFLAKE.test(id) || (everyone && id === EVERYONE)))].slice(0, max);
+}
+
+// { nazwaKomendy: ['idRoli' | 'everyone', ...] } — tylko prawdziwe nazwy komend i poprawne ID ról.
 function cleanCommandPermissions(input, current) {
   if (!isPlainObject(input)) return current ?? {};
   const out = {};
   for (const [name, ids] of Object.entries(input)) {
     if (!COMMAND_MAP.has(name) || !Array.isArray(ids)) continue;
-    out[name] = [...new Set(ids.map(String).filter((id) => SNOWFLAKE.test(id)))].slice(0, 25);
+    out[name] = cleanRoleIds(ids, { everyone: true });
   }
   return out;
 }
 
+function cleanTicketTypes(list, fallback) {
+  if (!Array.isArray(list)) return fallback;
+  const out = list
+    .slice(0, 5)
+    .map((t) => ({
+      label: String(t?.label ?? '').trim().slice(0, 80),
+      style: BUTTON_STYLE_NAMES.includes(t?.style) ? t.style : 'niebieski',
+      // Pytanie trafia do okienka Discorda jako etykieta pola — ta ma limit 45 znaków.
+      question: String(t?.question ?? '').trim().slice(0, 45),
+    }))
+    .filter((t) => t.label);
+  return out.length ? out : fallback;
+}
+
 function cleanValue(path, input, current, def) {
   if (path === 'commandPermissions') return cleanCommandPermissions(input, current);
-  if (path === 'modRoleIds') {
-    if (!Array.isArray(input)) return current;
-    return [...new Set(input.map(String).filter((id) => SNOWFLAKE.test(id)))];
+  if (/roleIds$/i.test(path)) return Array.isArray(input) ? cleanRoleIds(input) : current;
+  if (path === 'tickets.types') return cleanTicketTypes(input, current);
+  if (path === 'tickets.maxOpen') {
+    const n = Math.floor(Number(input));
+    return Number.isFinite(n) ? Math.min(5, Math.max(1, n)) : current;
   }
   if (path === 'escalation.rules') return cleanRules(input, current);
   if (path === 'presence.activities') return cleanActivities(input, current);
@@ -95,7 +117,7 @@ function cleanValue(path, input, current, def) {
     const n = Math.floor(Number(input));
     return Number.isFinite(n) ? Math.min(3600, Math.max(15, n)) : current;
   }
-  if (path === 'modLogChannelId' || path === 'announceChannelId') {
+  if (/(channelId|categoryId)$/i.test(path)) {
     if (input === '' || input === null) return '';
     return SNOWFLAKE.test(String(input)) ? String(input) : current;
   }
