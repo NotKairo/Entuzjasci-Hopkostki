@@ -33,6 +33,8 @@
         <a href="#pulpit" data-view="pulpit"><span>Pulpit</span></a>
         <a href="#ustawienia" data-view="ustawienia"><span>Ustawienia</span></a>
         <a href="#uprawnienia" data-view="uprawnienia"><span>Uprawnienia</span></a>
+        <a href="#czlonkowie" data-view="czlonkowie"><span>Nowe osoby</span></a>
+        <a href="#tickety" data-view="tickety"><span>Tickety</span></a>
         <a href="#glosowe" data-view="glosowe"><span>Kanały głosowe</span></a>
         <a href="#wiadomosci" data-view="wiadomosci"><span>Wiadomości</span></a>
         <a href="#embedy" data-view="embedy"><span>Wygląd embedów</span></a>
@@ -105,8 +107,8 @@
           </div>
           <div class="card">
             <h3>Role moderatorów</h3>
-            <p class="muted small">Osoby z tymi rolami mogą używać komend bota. Administratorzy i osoby z uprawnieniami Discorda (np. „Banowanie członków”) mają dostęp zawsze. Jeśli rola nie ma uprawnień Discorda, zezwól jej też na komendy w <em>Ustawienia serwera → Integracje</em>.</p>
-            <div id="roles-list" class="roles-list"></div>
+            <p class="muted small">Te role są oznaczane przy alertach o przekroczeniu progu ostrzeżeń i dostają komendy moderacyjne przy ustawianiu uprawnień od nowa. O tym, kto może używać której komendy, decyduje zakładka <a href="#uprawnienia">Uprawnienia</a>.</p>
+            <div data-picker-slot="cfg:modRoleIds"></div>
           </div>
           <div class="card">
             <h3>Wiadomości</h3>
@@ -167,16 +169,121 @@
       <section id="view-uprawnienia" class="view">
         <header class="view-head">
           <h2>Uprawnienia</h2>
-          <p class="muted">Domyślnie o dostępie decydują uprawnienia Discorda danej roli (np. „Banowanie członków”) oraz lista ról moderatorów z zakładki Ustawienia. Tutaj możesz ograniczyć pojedynczą komendę do wybranych ról — niezależnie od uprawnień Discorda.</p>
+          <p class="muted">Każda komenda ma własną listę ról, które mogą jej używać. Dodajesz rolę przez „+ Dodaj rolę”, usuwasz krzyżykiem. Administratorzy serwera mogą zawsze wszystko, a pusta lista oznacza „tylko administratorzy”.</p>
         </header>
         <div class="card">
-          <h3>Nadpisania dla komend</h3>
+          <h3>Szybkie zmiany</h3>
+          <div class="bulk-row">
+            <select id="perm-bulk-role" aria-label="Rola"></select>
+            <select id="perm-bulk-scope" aria-label="Zakres">
+              <option value="mod">do komend moderacyjnych</option>
+              <option value="all">do wszystkich komend</option>
+            </select>
+            <button type="button" class="btn ghost" id="perm-bulk-add">Dodaj</button>
+            <button type="button" class="btn ghost" id="perm-bulk-remove">Usuń ze wszystkich</button>
+          </div>
+          <p class="muted small">Rola bez uprawnienia Discorda do danej komendy nie zobaczy jej na liście komend w Discordzie, dopóki nie zezwolisz jej w <em>Ustawienia serwera → Integracje → bot</em>.
+            <button type="button" class="link-btn" id="perm-reset">Ustaw wszystkie listy od nowa według uprawnień Discorda</button></p>
+        </div>
+        <div class="card">
+          <h3>Komendy</h3>
           <div id="permission-commands" class="perm-commands"></div>
         </div>
         <div class="card">
           <h3>Kto może użyć jakiej komendy — podgląd na żywo</h3>
-          <p class="muted small">Liczone z ról serwera, uprawnień Discorda, listy moderatorów i nadpisań powyżej. Rola <code>@everyone</code> i role zarządzane przez integracje nie są pokazane.</p>
+          <p class="muted small">Liczone z list powyżej (także niezapisanych). Administratorzy mają dostęp zawsze.</p>
           <div class="table-wrap"><table class="table compact" id="permission-matrix"></table></div>
+        </div>
+      </section>
+
+      <!-- NOWE OSOBY -->
+      <section id="view-czlonkowie" class="view">
+        <header class="view-head">
+          <h2>Nowe osoby</h2>
+          <p class="muted">Automatyczne role po wejściu na serwer, powitanie, pożegnanie i log wejść. Zmienne w tekstach: <code>{uzytkownik}</code> (oznaczenie), <code>{nick}</code>, <code>{serwer}</code>, <code>{liczba}</code> (liczba członków).</p>
+        </header>
+        <div id="members-warning" class="banner warn hidden"></div>
+        <div class="grid two">
+          <div class="card">
+            <h3>Automatyczne role</h3>
+            <label class="toggle"><input type="checkbox" data-path="members.autoRole.enabled"><span></span>Dawaj role osobom, które dołączą</label>
+            <div class="field"><span>Role dla nowych osób</span><div data-picker-slot="cfg:members.autoRole.roleIds" data-assignable></div></div>
+            <div class="field"><span>Role dla nowych botów</span><div data-picker-slot="cfg:members.autoRole.botRoleIds" data-assignable></div></div>
+            <p class="muted small">Jeśli serwer wymaga zaakceptowania regulaminu, rola przychodzi po jego akceptacji. Na liście są tylko role, które bot może nadać.</p>
+          </div>
+          <div class="card">
+            <h3>Log wejść i wyjść</h3>
+            <label class="toggle"><input type="checkbox" data-path="members.logJoins"><span></span>Zapisuj wejścia i wyjścia w kanale logów moderacji</label>
+            <p class="muted small">Przy wejściu widać, kiedy założono konto — konta młodsze niż 7 dni są oznaczone (tak często wyglądają multikonta).</p>
+          </div>
+        </div>
+        <div class="grid two">
+          <div class="card">
+            <h3>Powitanie</h3>
+            <label class="toggle"><input type="checkbox" data-path="members.welcome.enabled"><span></span>Witaj nowe osoby</label>
+            <label class="field"><span>Kanał</span><select data-path="members.welcome.channelId" data-channel-select="pick"></select></label>
+            <label class="field"><span>Tytuł</span><input type="text" data-path="members.welcome.title" maxlength="200"></label>
+            <label class="field"><span>Wiadomość</span><textarea id="welcome-message" data-path="members.welcome.message" rows="3" maxlength="1500"></textarea></label>
+            <div class="chips" data-insert-into="welcome-message"></div>
+            <label class="field"><span>Kolor</span>
+              <div class="color-row"><input type="color" data-color-for="members.welcome.color"><input type="text" data-path="members.welcome.color" maxlength="7"></div>
+            </label>
+          </div>
+          <div class="card">
+            <h3>Pożegnanie</h3>
+            <label class="toggle"><input type="checkbox" data-path="members.goodbye.enabled"><span></span>Pisz, gdy ktoś wyjdzie</label>
+            <label class="field"><span>Kanał</span><select data-path="members.goodbye.channelId" data-channel-select="pick"></select></label>
+            <label class="field"><span>Wiadomość</span><textarea id="goodbye-message" data-path="members.goodbye.message" rows="3" maxlength="1500"></textarea></label>
+            <div class="chips" data-insert-into="goodbye-message"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TICKETY -->
+      <section id="view-tickety" class="view">
+        <header class="view-head">
+          <h2>Tickety</h2>
+          <p class="muted">Osoba klika przycisk w panelu ticketów, a bot tworzy prywatny kanał widoczny tylko dla niej i obsługi. W tickecie są przyciski Zamknij, Przejmij i Dodaj osobę. Po zamknięciu zapis rozmowy trafia do logów ticketów (i w DM do autora).</p>
+        </header>
+        <div id="tickets-warning" class="banner warn hidden"></div>
+        <div class="grid two">
+          <div class="card">
+            <h3>Ustawienia</h3>
+            <label class="toggle"><input type="checkbox" data-path="tickets.enabled"><span></span>Włącz tickety</label>
+            <label class="field"><span>Kategoria dla ticketów</span><select data-path="tickets.categoryId" data-channel-select="category"></select></label>
+            <label class="field"><span>Kanał logów ticketów (zapisy rozmów)</span><select data-path="tickets.logChannelId" data-channel-select="none"></select></label>
+            <div class="field"><span>Obsługa (widzi wszystkie tickety)</span><div data-picker-slot="cfg:tickets.supportRoleIds"></div></div>
+            <div class="grid two tight">
+              <label class="field"><span>Nazwa kanału ({numer}, {nick})</span><input type="text" data-path="tickets.nameTemplate" maxlength="90"></label>
+              <label class="field"><span>Otwartych naraz na osobę</span><input type="number" min="1" max="5" data-path="tickets.maxOpen"></label>
+            </div>
+            <label class="toggle"><input type="checkbox" data-path="tickets.dmTranscript"><span></span>Wysyłaj zapis rozmowy autorowi w DM</label>
+            <label class="field"><span>Powitanie w tickecie</span><textarea id="ticket-welcome" data-path="tickets.welcome" rows="3" maxlength="1500"></textarea></label>
+            <div class="chips" data-insert-into="ticket-welcome" data-vars="ticket"></div>
+          </div>
+          <div class="card">
+            <h3>Panel ticketów</h3>
+            <p class="muted small">Wiadomość z przyciskami, którą bot wysyła na wybrany kanał. Każdy przycisk to osobny rodzaj ticketu. Jeśli wpiszesz pytanie, przed otwarciem pojawi się okienko do opisania sprawy.</p>
+            <label class="field"><span>Tytuł</span><input type="text" data-path="tickets.panel.title" maxlength="200"></label>
+            <label class="field"><span>Opis</span><textarea data-path="tickets.panel.description" rows="3" maxlength="1500"></textarea></label>
+            <label class="field"><span>Kolor</span>
+              <div class="color-row"><input type="color" data-color-for="tickets.panel.color"><input type="text" data-path="tickets.panel.color" maxlength="7"></div>
+            </label>
+            <div class="field"><span>Przyciski (rodzaje ticketów)</span><div id="ticket-types"></div></div>
+            <button type="button" class="btn ghost" id="add-ticket-type">Dodaj przycisk</button>
+            <div class="bulk-row">
+              <select id="ticket-panel-channel" aria-label="Kanał panelu ticketów"></select>
+              <button type="button" class="btn success" id="ticket-panel-send">Wyślij panel</button>
+            </div>
+            <p class="muted small" id="ticket-panel-info"></p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h3>Ostatnie tickety</h3>
+            <button type="button" class="btn ghost small" id="tickets-refresh">Odśwież</button>
+          </div>
+          <div class="table-wrap"><table class="table" id="tickets-table"></table></div>
         </div>
       </section>
 

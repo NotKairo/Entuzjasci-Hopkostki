@@ -368,3 +368,26 @@ button.side-link { background: none; border: none; font: inherit; text-align: le
 #msg-items td:first-child { min-width: 140px; }
 #msg-items td:nth-child(3) { min-width: 120px; }
 @media (max-width: 1100px) { #view-wiadomosci .grid.editor { grid-template-columns: 1fr; } }
+
+/* ---------- Role jako chipy ---------- */
+.role-picker { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin: .45rem 0 .35rem; }
+.role-chip {
+  display: inline-flex; align-items: center; gap: .4rem; background: var(--bg-3); border: 1px solid var(--line);
+  border-radius: 999px; padding: .15rem .3rem .15rem .6rem; font-size: .86rem;
+}
+.role-chip button {
+  background: none; border: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 1rem; line-height: 1;
+  width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+}
+.role-chip button:hover { background: var(--red); color: #fff; }
+select.chip-add {
+  width: auto; min-width: 150px; padding: .25rem .5rem; border-radius: 999px; border: 1px dashed var(--line);
+  background: transparent; color: var(--text); font-size: .86rem; cursor: pointer;
+}
+select.chip-add:hover { border-color: var(--blurple); }
+.perm-command-head { justify-content: flex-start; gap: .7rem; }
+.bulk-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .6rem 0; }
+.bulk-row select { width: auto; min-width: 180px; }
+.link-btn { background: none; border: none; color: #00a8fc; font: inherit; cursor: pointer; padding: 0; text-decoration: underline; }
+.ttype { border: 1px solid var(--line); border-radius: 8px; padding: .5rem; margin-bottom: .5rem; }
+.ttype-row { display: grid; grid-template-columns: 1fr 130px auto; gap: .4rem; margin-bottom: .4rem; }

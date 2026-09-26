@@ -20,7 +20,9 @@ const RULE_ACTIONS = { alert: 'Alert', timeout: 'Timeout', kick: 'Kick', ban: 'B
 const PLACEHOLDERS = ['{uzytkownik}', '{nick}', '{moderator}', '{moderatorNick}', '{powod}', '{czas}', '{serwer}', '{sprawa}', '{typ}'];
 const ACTIVITY_LABELS = { custom: 'Własny opis', playing: 'Gra w', listening: 'Słucha', watching: 'Ogląda', competing: 'Rywalizuje w' };
 const PRESENCE_PLACEHOLDERS = ['{czlonkowie}', '{online}', '{serwer}', '{ostrzezenia}', '{sprawy}'];
-const VIEWS = ['pulpit', 'ustawienia', 'uprawnienia', 'glosowe', 'wiadomosci', 'embedy', 'ostrzezenia', 'sprawy', 'bany'];
+const VIEWS = ['pulpit', 'ustawienia', 'uprawnienia', 'czlonkowie', 'tickety', 'glosowe', 'wiadomosci', 'embedy', 'ostrzezenia', 'sprawy', 'bany'];
+const MEMBER_VARS = ['{uzytkownik}', '{nick}', '{serwer}', '{liczba}'];
+const TICKET_VARS = ['{uzytkownik}', '{nick}', '{numer}'];
 const EMPTY_GUILD = { channels: [], voiceChannels: [], categories: [], roles: [], bot: null };
 const BUTTON_STYLES = { niebieski: 'Niebieski', szary: 'Szary', zielony: 'Zielony', czerwony: 'Czerwony' };
 const PANEL_PASSWORD_KEY = 'hopkostki-panel-password';
@@ -203,11 +205,16 @@ $('#logout-btn').addEventListener('click', () => {
 // ---------- Start ----------
 let started = false;
 async function start() {
-  const [{ config, defaults }, guild, { commands }] = await Promise.all([
+  let [{ config, defaults }, guild, { commands }] = await Promise.all([
     api('/config'),
     api('/guild').catch(() => EMPTY_GUILD),
     api('/commands').catch(() => ({ commands: [] })),
   ]);
+  // Każda komenda ma mieć własną listę ról — brakujące (np. nowe komendy) bot uzupełnia według uprawnień Discorda.
+  if (guild.roles?.length && commands.some((c) => !Array.isArray(config.commandPermissions?.[c.name]))) {
+    const filled = await api('/permissions/defaults', { method: 'POST', body: '{}' }).catch(() => null);
+    if (filled?.config) config = filled.config;
+  }
   state.config = config;
   state.draft = clone(config);
   state.defaults = defaults;
@@ -256,6 +263,7 @@ function route() {
   if (state.view === 'embedy') renderPreview();
   if (state.view === 'uprawnienia') renderPermissions();
   if (state.view === 'glosowe') loadVoice();
+  if (state.view === 'tickety') loadTickets();
   if (state.view === 'wiadomosci') {
     renderMessageEditor();
     loadSentMessages();
@@ -328,6 +336,7 @@ async function refreshStatus() {
     renderChannelSelects();
     renderRoles();
     renderGenerators();
+    renderTicketTypes();
     renderBotWarnings();
     if (state.view === 'uprawnienia') renderPermissions();
     if (state.view === 'wiadomosci') renderMessageEditor();
@@ -408,9 +417,14 @@ function renderConfigUi() {
   renderActivities();
   renderPermissions();
   renderGenerators();
+  renderTicketTypes();
   renderBotWarnings();
   renderEmbedTabs();
   fillInputs();
+  $$('[data-insert-into]').forEach((box) => {
+    const vars = box.dataset.vars === 'ticket' ? TICKET_VARS : MEMBER_VARS;
+    box.innerHTML = vars.map((v) => `<button type="button" class="chip" data-insert="${v}">${v}</button>`).join('');
+  });
   $('#presence-chips').innerHTML = PRESENCE_PLACEHOLDERS.map((p) => `<button type="button" class="chip" data-presence-placeholder="${p}">${p}</button>`).join('');
   $('#placeholder-chips').innerHTML = PLACEHOLDERS.map((p) => `<button type="button" class="chip" data-placeholder="${p}">${p}</button>`).join('');
   markDirty();
@@ -421,6 +435,10 @@ function fillInputs() {
     const value = getPath(state.draft, el.dataset.path);
     if (el.type === 'checkbox') el.checked = Boolean(value);
     else el.value = value ?? '';
+  });
+  $$('input[type=color][data-color-for]').forEach((picker) => {
+    const value = getPath(state.draft, picker.dataset.colorFor);
+    if (/^#[0-9a-f]{6}$/i.test(value ?? '')) picker.value = value;
   });
   const dashboardColor = state.draft.tempVoice?.dashboard?.color;
   if (/^#[0-9a-f]{6}$/i.test(dashboardColor ?? '')) $('#dashboard-color-picker').value = dashboardColor;
@@ -456,12 +474,14 @@ document.addEventListener('change', onFieldChange);
 function renderChannelSelects() {
   $$('[data-channel-select]').forEach((select) => {
     const current = getPath(state.draft, select.dataset.path) ?? '';
-    const emptyLabel = select.dataset.channelSelect === 'none' ? '— wyłączone —' : 'Kanał, na którym użyto komendy';
+    const kind = select.dataset.channelSelect;
+    const list = kind === 'category' ? state.guild.categories : state.guild.channels;
+    const emptyLabel = { none: '— wyłączone —', category: 'Bez kategorii', pick: '— wybierz kanał —' }[kind] ?? 'Kanał, na którym użyto komendy';
     let html = `<option value="">${emptyLabel}</option>`;
-    html += state.guild.channels
-      .map((c) => `<option value="${c.id}">#${esc(c.name)}${c.category ? ` · ${esc(c.category)}` : ''}</option>`)
+    html += list
+      .map((c) => `<option value="${c.id}">${kind === 'category' ? '' : '#'}${esc(c.name)}${c.category ? ` · ${esc(c.category)}` : ''}</option>`)
       .join('');
-    if (current && !state.guild.channels.some((c) => c.id === current)) {
+    if (current && !list.some((c) => c.id === current)) {
       html += `<option value="${esc(current)}">(nieznany kanał ${esc(current)})</option>`;
     }
     select.innerHTML = html;
@@ -470,72 +490,138 @@ function renderChannelSelects() {
 }
 
 function renderRoles() {
-  const box = $('#roles-list');
-  if (!state.guild.roles.length) {
-    box.innerHTML = '<p class="muted small">Brak ról do wyświetlenia — bot nie jest jeszcze połączony z serwerem.</p>';
-    return;
+  renderPickers();
+}
+
+// ---------- Wybór ról jako „chipy” (+ Dodaj rolę / ×) ----------
+// Klucz listy: "perm:<komenda>" (kto może użyć komendy) albo "cfg:<ścieżka w konfiguracji>".
+const EVERYONE = 'everyone';
+
+function pickerList(key) {
+  if (key.startsWith('perm:')) return state.draft.commandPermissions?.[key.slice(5)] ?? [];
+  return getPath(state.draft, key.slice(4)) ?? [];
+}
+
+function setPickerList(key, list) {
+  if (key.startsWith('perm:')) {
+    state.draft.commandPermissions = { ...(state.draft.commandPermissions ?? {}), [key.slice(5)]: list };
+    renderPermissionMatrix();
+  } else {
+    setPath(state.draft, key.slice(4), list);
   }
-  box.innerHTML = state.guild.roles
-    .map((role) => {
-      const color = role.color === '#000000' ? '#99aab5' : role.color;
-      const checked = state.draft.modRoleIds.includes(role.id) ? 'checked' : '';
-      return `<label class="role-item"><input type="checkbox" data-role="${role.id}" ${checked}><span class="role-dot" style="background:${esc(color)}"></span>${esc(role.name)}</label>`;
+  renderBotWarnings();
+  markDirty();
+}
+
+function roleLabel(id) {
+  if (id === EVERYONE) return { name: 'Wszyscy (@everyone)', color: '#99aab5' };
+  const role = roleById(id);
+  return { name: role?.name ?? 'usunięta rola', color: role && role.color !== '#000000' ? role.color : '#99aab5' };
+}
+
+function rolePicker(key, { everyone = false, assignable = false } = {}) {
+  const list = pickerList(key);
+  const chips = list
+    .map((id) => {
+      const { name, color } = roleLabel(id);
+      return `<span class="role-chip"><span class="role-dot" style="background:${esc(color)}"></span>${esc(name)}<button type="button" data-chip-remove="${esc(id)}" title="Usuń">×</button></span>`;
     })
     .join('');
+  const options = [
+    ...(everyone && !list.includes(EVERYONE) ? [`<option value="${EVERYONE}">Wszyscy (@everyone)</option>`] : []),
+    ...state.guild.roles.filter((r) => !list.includes(r.id) && (!assignable || r.assignable)).map((r) => `<option value="${r.id}">${esc(r.name)}</option>`),
+  ];
+  const add = options.length
+    ? `<select class="chip-add" data-chip-add aria-label="Dodaj rolę"><option value="">+ Dodaj rolę</option>${options.join('')}</select>`
+    : '';
+  const empty = list.length ? '' : `<span class="muted small">${key.startsWith('perm:') ? 'tylko administratorzy' : 'brak'}</span>`;
+  return `<div class="role-picker" data-picker="${esc(key)}" data-everyone="${everyone}" data-assignable="${assignable}">${chips}${empty}${add}</div>`;
 }
-$('#roles-list').addEventListener('change', () => {
-  state.draft.modRoleIds = $$('[data-role]').filter((el) => el.checked).map((el) => el.dataset.role);
-  markDirty();
+
+function refreshPicker(box) {
+  box.outerHTML = rolePicker(box.dataset.picker, { everyone: box.dataset.everyone === 'true', assignable: box.dataset.assignable === 'true' });
+}
+
+// Miejsca w HTML: <div data-picker-slot="cfg:ścieżka" [data-assignable] [data-everyone]></div>
+function renderPickers() {
+  $$('[data-picker-slot]').forEach((slot) => {
+    slot.innerHTML = rolePicker(slot.dataset.pickerSlot, { everyone: 'everyone' in slot.dataset, assignable: 'assignable' in slot.dataset });
+  });
+}
+
+document.addEventListener('change', (event) => {
+  const select = event.target.closest('[data-chip-add]');
+  if (!select?.value) return;
+  const box = select.closest('[data-picker]');
+  setPickerList(box.dataset.picker, [...pickerList(box.dataset.picker), select.value]);
+  refreshPicker(box);
+});
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-chip-remove]');
+  if (!button) return;
+  const box = button.closest('[data-picker]');
+  setPickerList(box.dataset.picker, pickerList(box.dataset.picker).filter((id) => id !== button.dataset.chipRemove));
+  refreshPicker(box);
 });
 
 // ---------- Uprawnienia komend ----------
-// Ta sama logika co po stronie bota (moderation.js/roleHasAccess) — liczona tu, żeby pokazać
-// podgląd na żywo bez proszenia bota o każdą kombinację roli i komendy.
+// Ta sama logika co po stronie bota (moderation.js/roleHasAccess) — liczona tu dla podglądu na żywo.
 const ADMINISTRATOR_BIT = 8n;
 function hasBit(bitsStr, bit) {
   const bits = BigInt(bitsStr || 0);
   return (bits & bit) === bit;
 }
-function roleCanUseDefault(role, permission, modRoleIds) {
-  if (hasBit(role.permissions, ADMINISTRATOR_BIT)) return true;
-  if (!permission) return true;
-  if (hasBit(role.permissions, BigInt(permission))) return true;
-  return modRoleIds.includes(role.id);
-}
 function roleCanUse(role, cmd, config) {
   if (hasBit(role.permissions, ADMINISTRATOR_BIT)) return true;
-  const override = config.commandPermissions?.[cmd.name];
-  if (Array.isArray(override)) return override.includes(role.id);
-  return roleCanUseDefault(role, cmd.permission, config.modRoleIds);
+  const list = config.commandPermissions?.[cmd.name];
+  if (Array.isArray(list)) return list.includes(EVERYONE) || list.includes(role.id);
+  if (!cmd.permission) return true;
+  return hasBit(role.permissions, BigInt(cmd.permission)) || config.modRoleIds.includes(role.id);
 }
 
 function renderPermissions() {
   if (!state.commandMeta) return;
-  const roles = state.guild.roles;
-  const overrides = state.draft.commandPermissions ?? (state.draft.commandPermissions = {});
-
   $('#permission-commands').innerHTML = state.commandMeta
-    .map((cmd) => {
-      const active = Array.isArray(overrides[cmd.name]);
-      const selected = new Set(active ? overrides[cmd.name] : roles.filter((r) => roleCanUseDefault(r, cmd.permission, state.draft.modRoleIds)).map((r) => r.id));
-      const roleChecks = roles
-        .map(
-          (r) => `<label class="role-item"><input type="checkbox" data-perm-role="${r.id}" data-perm-cmd="${cmd.name}" ${selected.has(r.id) ? 'checked' : ''} ${active ? '' : 'disabled'}><span class="role-dot" style="background:${esc(r.color === '#000000' ? '#99aab5' : r.color)}"></span>${esc(r.name)}</label>`,
-        )
-        .join('');
-      return `<div class="perm-command" data-cmd="${cmd.name}">
-        <div class="perm-command-head">
-          <div><code>/${esc(cmd.name)}</code> <span class="muted small">${esc(cmd.description)}</span></div>
-          <label class="toggle small"><input type="checkbox" data-perm-toggle="${cmd.name}" ${active ? 'checked' : ''}><span></span>Ogranicz do wybranych ról</label>
-        </div>
-        <div class="muted small">Domyślnie: ${esc(cmd.permissionLabel)}${state.draft.modRoleIds.length ? ' albo rola moderatora z Ustawień' : ''}</div>
-        <div class="roles-list compact">${roleChecks || '<p class="muted small">Brak ról na serwerze.</p>'}</div>
-      </div>`;
-    })
+    .map(
+      (cmd) => `<div class="perm-command">
+        <div class="perm-command-head"><code>/${esc(cmd.name)}</code><span class="muted small">${esc(cmd.description)}</span></div>
+        ${rolePicker(`perm:${cmd.name}`, { everyone: true })}
+        <div class="muted small">Uprawnienie Discorda do tej komendy: ${esc(cmd.permissionLabel)}</div>
+      </div>`,
+    )
     .join('');
-
+  $('#perm-bulk-role').innerHTML =
+    '<option value="">— wybierz rolę —</option>' + state.guild.roles.map((r) => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
   renderPermissionMatrix();
 }
+
+function bulkRoleChange(add) {
+  const roleId = $('#perm-bulk-role').value;
+  if (!roleId) return toast('Wybierz rolę.', 'error');
+  const onlyMod = $('#perm-bulk-scope').value === 'mod';
+  for (const cmd of state.commandMeta) {
+    if (add && onlyMod && !cmd.permission) continue;
+    const list = pickerList(`perm:${cmd.name}`);
+    state.draft.commandPermissions[cmd.name] = add ? [...new Set([...list, roleId])] : list.filter((id) => id !== roleId);
+  }
+  markDirty();
+  renderPermissions();
+}
+$('#perm-bulk-add').addEventListener('click', () => bulkRoleChange(true));
+$('#perm-bulk-remove').addEventListener('click', () => bulkRoleChange(false));
+$('#perm-reset').addEventListener('click', async () => {
+  if (!confirm('Ustawić listy ról wszystkich komend od nowa według obecnych uprawnień Discorda?')) return;
+  try {
+    const { config } = await api('/permissions/defaults', { method: 'POST', body: JSON.stringify({ reset: true }) });
+    state.config.commandPermissions = config.commandPermissions;
+    state.draft.commandPermissions = clone(config.commandPermissions);
+    renderPermissions();
+    markDirty();
+    toast('Listy ról ustawione od nowa');
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+});
 
 function renderPermissionMatrix() {
   const roles = state.guild.roles;
@@ -553,30 +639,6 @@ function renderPermissionMatrix() {
     .join('');
   $('#permission-matrix').innerHTML = head + `<tbody>${body}</tbody>`;
 }
-
-$('#permission-commands').addEventListener('change', (event) => {
-  const toggleName = event.target.dataset.permToggle;
-  if (toggleName) {
-    if (event.target.checked) {
-      const cmd = state.commandMeta.find((c) => c.name === toggleName);
-      state.draft.commandPermissions[toggleName] = state.guild.roles
-        .filter((r) => roleCanUseDefault(r, cmd.permission, state.draft.modRoleIds))
-        .map((r) => r.id);
-    } else {
-      delete state.draft.commandPermissions[toggleName];
-    }
-    renderPermissions();
-    markDirty();
-    return;
-  }
-  const roleId = event.target.dataset.permRole;
-  const cmdName = event.target.dataset.permCmd;
-  if (!roleId || !cmdName) return;
-  const list = state.draft.commandPermissions[cmdName] ?? [];
-  state.draft.commandPermissions[cmdName] = event.target.checked ? [...new Set([...list, roleId])] : list.filter((id) => id !== roleId);
-  renderPermissionMatrix();
-  markDirty();
-});
 
 // ---------- Progi automatycznych kar ----------
 const optionList = (map, selected) =>
@@ -729,14 +791,30 @@ function renderGatewayLine(gateway) {
 
 // ---------- Kanały głosowe na żądanie ----------
 function renderBotWarnings() {
-  const show = (el, missing, what) => {
-    el.classList.toggle('hidden', !missing?.length);
-    if (missing?.length) {
-      el.innerHTML = `<strong>Bot nie ma uprawnień: ${missing.map(esc).join(', ')}.</strong> Nadaj je roli bota (Ustawienia serwera → Role), inaczej ${what} nie zadziała.`;
-    }
+  const bot = state.guild.bot;
+  const set = (el, parts) => {
+    const html = parts.filter(Boolean).join('<br>');
+    el.classList.toggle('hidden', !html);
+    el.innerHTML = html;
   };
-  show($('#voice-warning'), state.guild.bot?.missingVoice, 'tworzenie kanałów głosowych');
-  show($('#roles-warning'), state.guild.bot?.missingRoles, 'rozdawanie ról');
+  const missing = (list, what) =>
+    list?.length ? `<strong>Bot nie ma uprawnień: ${list.map(esc).join(', ')}.</strong> Nadaj je roli bota (Ustawienia serwera → Role), inaczej ${what} nie zadziała.` : '';
+  const intent = (name, portalName) =>
+    `<strong>Potrzebna intencja „${name}”.</strong> Bot włącza ją sam po zapisaniu ustawień${
+      bot?.intentsError ? ` — tym razem się nie udało (${esc(bot.intentsError)}). Włącz ją ręcznie: Discord Developer Portal → Bot → Privileged Gateway Intents → ${portalName}.` : '.'
+    }`;
+  const m = state.draft?.members;
+  const membersOn = m && (m.autoRole.enabled || m.welcome.enabled || m.goodbye.enabled || m.logJoins);
+  set($('#voice-warning'), [missing(bot?.missingVoice, 'tworzenie kanałów głosowych')]);
+  set($('#roles-warning'), [missing(bot?.missingRoles, 'rozdawanie ról')]);
+  set($('#members-warning'), [
+    m?.autoRole.enabled ? missing(bot?.missingRoles, 'dawanie ról') : '',
+    membersOn && bot && !bot.membersIntent ? intent('Server Members', 'Server Members Intent') : '',
+  ]);
+  set($('#tickets-warning'), [
+    missing(bot?.missingTickets, 'tworzenie ticketów'),
+    state.draft?.tickets.enabled && bot && !bot.contentIntent ? intent('Message Content', 'Message Content Intent') + ' Bez niej zapis rozmowy w tickecie będzie pusty.' : '',
+  ]);
 }
 
 function channelOptions(list, selected, emptyLabel, prefix = '') {
@@ -832,6 +910,127 @@ $('#voice-table').addEventListener('click', async (event) => {
     toast(error.message, 'error');
   }
   loadVoice();
+});
+
+// ---------- Pola koloru i zmienne w tekstach ----------
+document.addEventListener('input', (event) => {
+  const picker = event.target.closest('input[type=color][data-color-for]');
+  if (!picker) return;
+  event.stopPropagation();
+  const field = $(`[data-path="${picker.dataset.colorFor}"]`);
+  field.value = picker.value.toUpperCase();
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+});
+document.addEventListener('click', (event) => {
+  const chip = event.target.closest('[data-insert]');
+  if (!chip) return;
+  const field = document.getElementById(chip.closest('[data-insert-into]').dataset.insertInto);
+  const start = field.selectionStart ?? field.value.length;
+  const end = field.selectionEnd ?? field.value.length;
+  field.value = field.value.slice(0, start) + chip.dataset.insert + field.value.slice(end);
+  field.focus();
+  field.setSelectionRange(start + chip.dataset.insert.length, start + chip.dataset.insert.length);
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+});
+document.addEventListener('change', (event) => {
+  if (event.target.dataset?.path?.startsWith('members.') || event.target.dataset?.path === 'tickets.enabled') renderBotWarnings();
+});
+
+// ---------- Tickety ----------
+function renderTicketTypes() {
+  const types = state.draft.tickets.types;
+  $('#ticket-types').innerHTML = types
+    .map(
+      (t, i) => `<div class="ttype" data-ttype="${i}">
+        <div class="ttype-row">
+          <input type="text" maxlength="80" value="${esc(t.label)}" data-ttype-field="label" aria-label="Napis na przycisku">
+          <select data-ttype-field="style" aria-label="Kolor przycisku">${Object.entries(BUTTON_STYLES).map(([v, l]) => `<option value="${v}" ${v === t.style ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          <button type="button" class="btn ghost small" data-ttype-del ${types.length <= 1 ? 'disabled' : ''}>Usuń</button>
+        </div>
+        <input type="text" maxlength="45" value="${esc(t.question)}" data-ttype-field="question" placeholder="Pytanie w okienku (maks. 45 znaków) — puste = bez okienka" aria-label="Pytanie">
+      </div>`,
+    )
+    .join('');
+  $('#add-ticket-type').disabled = types.length >= 5;
+  const saved = state.ticketPanel?.channelId;
+  $('#ticket-panel-channel').innerHTML = channelOptions(state.guild.channels, saved ?? '', '— wybierz kanał —', '#');
+}
+
+function onTicketTypeChange(event) {
+  const row = event.target.closest('[data-ttype]');
+  const field = event.target.dataset.ttypeField;
+  if (!row || !field) return;
+  event.stopPropagation();
+  state.draft.tickets.types[Number(row.dataset.ttype)][field] = event.target.value;
+  markDirty();
+}
+$('#ticket-types').addEventListener('input', onTicketTypeChange);
+$('#ticket-types').addEventListener('change', onTicketTypeChange);
+$('#ticket-types').addEventListener('click', (event) => {
+  const row = event.target.closest('[data-ttype-del]') && event.target.closest('[data-ttype]');
+  if (!row) return;
+  state.draft.tickets.types.splice(Number(row.dataset.ttype), 1);
+  renderTicketTypes();
+  markDirty();
+});
+$('#add-ticket-type').addEventListener('click', () => {
+  state.draft.tickets.types.push({ label: 'Nowy ticket', style: 'szary', question: '' });
+  renderTicketTypes();
+  markDirty();
+});
+$('#ticket-panel-send').addEventListener('click', async () => {
+  if (isDirty()) return toast('Najpierw zapisz zmiany (przycisk na dole ekranu).', 'error');
+  const channelId = $('#ticket-panel-channel').value;
+  if (!channelId) return toast('Wybierz kanał.', 'error');
+  $('#ticket-panel-send').disabled = true;
+  try {
+    const { panel } = await api('/tickets/panel', { method: 'POST', body: JSON.stringify({ channelId }) });
+    toast(panel.updated ? 'Panel ticketów zaktualizowany' : 'Panel ticketów wysłany');
+    loadTickets();
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    $('#ticket-panel-send').disabled = false;
+  }
+});
+
+async function loadTickets() {
+  try {
+    const { tickets, panel } = await api('/tickets');
+    state.ticketPanel = panel;
+    const channelName = (id) => state.guild.channels.find((c) => c.id === id)?.name ?? id;
+    $('#ticket-panel-info').textContent = panel ? `Panel jest teraz na #${channelName(panel.channelId)} (wysłany ${relTime(panel.at)}). Ponowne wysłanie na ten sam kanał tylko go zaktualizuje.` : 'Panel nie został jeszcze wysłany.';
+    if (!$('#ticket-panel-channel').value && panel) $('#ticket-panel-channel').value = panel.channelId;
+    const rows = tickets
+      .map(
+        (t) => `<tr>
+          <td><strong>#${String(t.id).padStart(4, '0')}</strong></td>
+          <td>${esc(t.userTag ?? t.userId)}<span class="note">${esc(t.userId)}</span></td>
+          <td>${esc(t.type ?? '—')}${t.subject ? `<span class="note">${esc(t.subject.slice(0, 80))}</span>` : ''}</td>
+          <td><span class="dot ${t.status === 'open' ? 'ok' : 'wait'}"></span>${t.status === 'open' ? 'otwarty' : 'zamknięty'}${t.claimedBy ? '<span class="note">przejęty</span>' : ''}</td>
+          <td>${esc(shortDate(t.createdAt))}${t.closedAt ? `<span class="note">zamknięty ${esc(shortDate(t.closedAt))}</span>` : ''}</td>
+          <td>${t.status === 'open' ? `<button type="button" class="btn danger small" data-ticket-close="${t.id}">Zamknij</button>` : ''}</td>
+        </tr>`,
+      )
+      .join('');
+    $('#tickets-table').innerHTML = tickets.length
+      ? `<thead><tr><th>#</th><th>Autor</th><th>Rodzaj / sprawa</th><th>Status</th><th>Otwarty</th><th></th></tr></thead><tbody>${rows}</tbody>`
+      : '<tr><td class="empty">Nie było jeszcze żadnych ticketów.</td></tr>';
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+$('#tickets-refresh').addEventListener('click', loadTickets);
+$('#tickets-table').addEventListener('click', async (event) => {
+  const id = event.target.closest('[data-ticket-close]')?.dataset.ticketClose;
+  if (!id || !confirm('Zamknąć ten ticket? Kanał zostanie usunięty, zapis trafi do logów.')) return;
+  try {
+    await api(`/tickets/${id}/close`, { method: 'POST' });
+    toast('Ticket zamknięty');
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+  loadTickets();
 });
 
 // ---------- Wiadomości (z przyciskami / listą ról) ----------
@@ -1081,7 +1280,10 @@ function markDirty() {
 $('#save').addEventListener('click', async () => {
   $('#save').disabled = true;
   try {
-    const { config } = await api('/config', { method: 'PUT', body: JSON.stringify(state.draft) });
+    const { config, intents } = await api('/config', { method: 'PUT', body: JSON.stringify(state.draft) });
+    if (intents && state.guild.bot) {
+      state.guild.bot = { ...state.guild.bot, membersIntent: intents.members, contentIntent: intents.content, intentsError: intents.error };
+    }
     state.config = config;
     state.draft = clone(config);
     renderConfigUi();
