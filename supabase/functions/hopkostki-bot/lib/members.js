@@ -2,10 +2,10 @@
 // Zdarzenia GUILD_MEMBER_* przychodzą z gatewaya tylko z intencją „Server Members”, którą bot włącza sam
 // (flaga GATEWAY_GUILD_MEMBERS_LIMITED aplikacji), gdy któraś z tych funkcji jest włączona.
 
-import { getApp, getGuildContext, isOurGuild, sendModLog } from './moderation.js';
+import { getApp, getGuildContext, isOurGuild } from './moderation.js';
 import { avatarUrl } from './rest.js';
 import { COLORS, colorInt, escapeMarkdown, fillTemplate } from './embeds.js';
-import { discordTimestamp } from './duration.js';
+import { joinLogsOn, logMemberJoin, logMemberLeave, messageLogsOn } from './logs.js';
 
 const FLAG = { MEMBERS: 1 << 14, MEMBERS_LIMITED: 1 << 15, CONTENT: 1 << 18, CONTENT_LIMITED: 1 << 19 };
 const RECENT_JOIN_MS = 30 * 60_000;
@@ -17,7 +17,12 @@ export const contentIntentOn = (app) => Boolean((app?.flags ?? 0) & (FLAG.CONTEN
 
 export function membersFeaturesOn(config) {
   const m = config.members;
-  return m.autoRole.enabled || m.welcome.enabled || m.goodbye.enabled || m.logJoins;
+  return m.autoRole.enabled || m.welcome.enabled || m.goodbye.enabled || joinLogsOn(config);
+}
+
+// Treść cudzych wiadomości: zapis ticketów, logi usuniętych/edytowanych wiadomości, embed DISBOARD przy bumpie.
+export function contentFeaturesOn(config) {
+  return config.tickets.enabled || config.bump.enabled || messageLogsOn(config);
 }
 
 // Włącza w aplikacji intencje potrzebne do włączonych funkcji (tylko wersje "limited" da się włączyć przez API —
@@ -25,7 +30,7 @@ export function membersFeaturesOn(config) {
 export async function ensureIntentFlags(bot, config) {
   const app = await getApp(bot);
   const needMembers = membersFeaturesOn(config) && !membersIntentOn(app);
-  const needContent = config.tickets.enabled && !contentIntentOn(app);
+  const needContent = contentFeaturesOn(config) && !contentIntentOn(app);
   let flags = app.flags ?? 0;
   let error = null;
   if (needMembers || needContent) {
@@ -67,11 +72,13 @@ export async function giveAutoRoles(bot, guildId, member, autoRole) {
 
 export async function onMemberJoin(bot, member) {
   if (!(await isOurGuild(bot, member?.guild_id))) return;
-  const { members } = await bot.store.getConfig();
+  const config = await bot.store.getConfig();
+  const { members } = config;
   // Przy weryfikacji członkostwa (regulamin) rolę dostaje się dopiero po akceptacji — patrz onMemberUpdate.
   if (members.autoRole.enabled && !member.pending) await giveAutoRoles(bot, member.guild_id, member, members.autoRole);
 
-  const needsGuild = members.welcome.enabled || members.logJoins;
+  const logJoins = joinLogsOn(config);
+  const needsGuild = members.welcome.enabled || logJoins;
   const gctx = needsGuild ? await getGuildContext(bot, { force: true }).catch(() => null) : null;
   const user = member.user;
 
@@ -94,20 +101,7 @@ export async function onMemberJoin(bot, member) {
       .catch((error) => console.warn(`[powitanie] ${error.message}`));
   }
 
-  if (members.logJoins) {
-    const created = Number((BigInt(user.id) >> 22n) + 1420070400000n);
-    const young = Date.now() - created < 7 * 24 * 60 * 60_000;
-    await sendModLog(bot, await bot.store.getConfig(), {
-      embeds: [
-        {
-          color: young ? COLORS.warning : COLORS.success,
-          author: { name: `${user.username} dołączył(a)`, icon_url: avatarUrl(user, 64) },
-          description: `<@${user.id}> \`${user.id}\`\n**Konto założone:** ${discordTimestamp(created, 'f')} (${discordTimestamp(created, 'R')})${young ? '\n**Uwaga:** konto ma mniej niż 7 dni.' : ''}`,
-          footer: { text: `Członków: ${gctx?.guild?.memberCount ?? '?'}` },
-        },
-      ],
-    });
-  }
+  if (logJoins) await logMemberJoin(bot, member, gctx?.guild?.memberCount);
 }
 
 // Po zaakceptowaniu regulaminu (pending: true → false) dostaje role, których nie mógł dostać przy wejściu.
@@ -124,7 +118,7 @@ export async function onMemberLeave(bot, data) {
   if (!(await isOurGuild(bot, data?.guild_id))) return;
   const config = await bot.store.getConfig();
   const { members } = config;
-  if (!members.goodbye.enabled && !members.logJoins) return;
+  if (!members.goodbye.enabled && !joinLogsOn(config)) return;
   const gctx = await getGuildContext(bot, { force: true }).catch(() => null);
   const user = data.user;
   if (members.goodbye.enabled && members.goodbye.channelId && !user.bot) {
@@ -135,11 +129,7 @@ export async function onMemberLeave(bot, data) {
       })
       .catch((error) => console.warn(`[pożegnanie] ${error.message}`));
   }
-  if (members.logJoins) {
-    await sendModLog(bot, config, {
-      embeds: [{ color: COLORS.muted, author: { name: `${user.username} wyszedł/wyszła`, icon_url: avatarUrl(user, 64) }, description: `<@${user.id}> \`${user.id}\`` }],
-    });
-  }
+  await logMemberLeave(bot, data);
 }
 
 // Zapas w cronie (co 5 min): osoby, które weszły w ostatniej dobie, a nie mają automatycznych ról

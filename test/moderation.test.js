@@ -51,7 +51,7 @@ test('tymczasowy ban: DM przed banem, embed na kanale z oznaczeniem, log i wpis 
   assert.match(field(embed, '📅 Wygasa'), /^<t:\d+:f>\n<t:\d+:R>$/);
   assert.equal(field(embed, '👤 Użytkownik'), '<@target>\n`hurownik_og`');
   assert.equal(field(embed, '📝 Powód'), '```\nWielokrotne łamanie zasad\n```');
-  assert.equal(embed.footer.text, `Sprawa #${entry.id} • Entuzjaści Hopkostki 🫓`);
+  assert.equal(embed.footer.text, `Sprawa #${entry.id} • Entuzjaści Hopkostki`);
 
   assert.match(s.discord.state.dms[0].embeds[0].description, /tymczasowo zbanowany na serwerze/);
   assert.deepEqual([...(await s.store.filterModMessages([message.id]))], [message.id]);

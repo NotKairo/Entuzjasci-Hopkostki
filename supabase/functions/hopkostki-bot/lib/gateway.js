@@ -1,26 +1,39 @@
 // Połączenie z gateway Discorda w krótkich sesjach (~55 s co minutę, uruchamianych przez pg_cron).
 // Funkcja Edge nie utrzyma stałego WebSocketu, więc każda sesja WZNAWIA poprzednią (RESUME) zamiast
-// logować się od nowa. Dzięki temu bot ma status "online", rotujące opisy w statusie
-// i od razu dodaje 🫓 pod odpowiedziami na wiadomości o karach (cron zostaje jako zapas).
+// logować się od nowa (Discord dosyła wtedy zdarzenia z przerwy). Dzięki temu bot ma status "online",
+// rotujące opisy, od razu dodaje 🫓 pod odpowiedziami na wiadomości o karach (cron zostaje jako zapas),
+// a także obsługuje logi serwera, bumpy DISBOARD, AFK i kanały głosowe na żądanie.
 
 import { reactionPath } from './rest.js';
 import { getApp, getGuildContext } from './moderation.js';
 import { syncGuildVoiceStates, onVoiceStateUpdate } from './voice.js';
-import { membersFeaturesOn, membersIntentOn, onMemberJoin, onMemberLeave, onMemberUpdate } from './members.js';
+import { membersFeaturesOn, membersIntentOn, contentFeaturesOn, contentIntentOn, onMemberJoin, onMemberLeave, onMemberUpdate } from './members.js';
+import { auditLogsOn, onMessageCreateLog, onMessageUpdate, onMessageDelete, onMessageDeleteBulk, onAuditLogEntry } from './logs.js';
+import { onBumpMessage } from './bump.js';
+import { onMessageAfk } from './community.js';
 
 const QUERY = '/?v=10&encoding=json';
 // GUILDS (lista osób na kanałach głosowych przy logowaniu) + GUILD_VOICE_STATES (wejścia/wyjścia z kanałów)
 // + GUILD_MESSAGES (odpowiedzi na wiadomości o karach — bez treści, wystarczy message_reference).
 export const INTENTS = (1 << 0) | (1 << 7) | (1 << 9);
-// GUILD_MEMBERS (uprzywilejowana) — tylko gdy włączone powitania/autorole i aplikacja ma tę intencję,
-// inaczej Discord odrzuciłby logowanie (4014) i bot straciłby status i kanały głosowe.
+// Uprzywilejowane intencje (GUILD_MEMBERS, MESSAGE_CONTENT) dodajemy tylko, gdy są potrzebne i aplikacja
+// je ma — inaczej Discord odrzuciłby logowanie (4014) i bot straciłby status i kanały głosowe.
+// GUILD_MODERATION (bany + dziennik zdarzeń) nie jest uprzywilejowana — potrzebna do logów serwera.
 const GUILD_MEMBERS = 1 << 1;
+const GUILD_MODERATION = 1 << 2;
+const MESSAGE_CONTENT = 1 << 15;
 
-async function sessionIntents(bot) {
+export async function sessionIntents(bot) {
   const config = await bot.store.getConfig();
-  if (!membersFeaturesOn(config)) return INTENTS;
+  let intents = INTENTS;
+  if (auditLogsOn(config)) intents |= GUILD_MODERATION;
+  const wantsMembers = membersFeaturesOn(config);
+  const wantsContent = contentFeaturesOn(config);
+  if (!wantsMembers && !wantsContent) return intents;
   const app = await getApp(bot).catch(() => null);
-  return membersIntentOn(app) ? INTENTS | GUILD_MEMBERS : INTENTS;
+  if (wantsMembers && membersIntentOn(app)) intents |= GUILD_MEMBERS;
+  if (wantsContent && contentIntentOn(app)) intents |= MESSAGE_CONTENT;
+  return intents;
 }
 const OP = { DISPATCH: 0, HEARTBEAT: 1, IDENTIFY: 2, PRESENCE: 3, RESUME: 6, RECONNECT: 7, INVALID_SESSION: 9, HELLO: 10, ACK: 11 };
 // 4004 zły token, 4010–4014 błędna konfiguracja — ponawianie nic nie da.
@@ -274,6 +287,17 @@ async function connectOnce(bot, { WebSocketImpl, deadline, margin, status }) {
             track(updatePresence());
           } else if (packet.t === 'MESSAGE_CREATE') {
             track(reactToReply(bot, packet.d, status));
+            track(onMessageCreateLog(bot, packet.d));
+            track(onBumpMessage(bot, packet.d));
+            track(onMessageAfk(bot, packet.d));
+          } else if (packet.t === 'MESSAGE_UPDATE') {
+            track(onMessageUpdate(bot, packet.d));
+          } else if (packet.t === 'MESSAGE_DELETE') {
+            track(onMessageDelete(bot, packet.d));
+          } else if (packet.t === 'MESSAGE_DELETE_BULK') {
+            track(onMessageDeleteBulk(bot, packet.d));
+          } else if (packet.t === 'GUILD_AUDIT_LOG_ENTRY_CREATE') {
+            track(onAuditLogEntry(bot, packet.d));
           } else if (packet.t === 'GUILD_CREATE') {
             queueVoice(() => syncGuildVoiceStates(bot, packet.d));
           } else if (packet.t === 'VOICE_STATE_UPDATE') {

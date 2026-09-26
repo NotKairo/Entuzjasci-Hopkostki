@@ -1,7 +1,8 @@
 // Zadania uruchamiane co 30 s przez pg_cron:
 // - konfiguracja aplikacji (rejestracja komend, adres Interactions Endpoint),
 // - zdejmowanie wygasłych tymczasowych banów i usuwanie wygasłych ostrzeżeń,
-// - reakcje 🫓 pod odpowiedziami na wiadomości o karach (zapas, gdyby sesja gateway coś przegapiła).
+// - reakcje 🫓 pod odpowiedziami na wiadomości o karach (zapas, gdyby sesja gateway coś przegapiła),
+// - przypominajka o bumpie, przypomnienia (/przypomnij), koniec konkursów, czyszczenie pamięci wiadomości.
 
 import { commandDefinitions, fillCommandPermissions } from './commands.js';
 import { getApp, resolveGuildId, expireTempBan, logExpiredWarns } from './moderation.js';
@@ -9,6 +10,8 @@ import { reactionPath } from './rest.js';
 import { sha256Hex } from './verify.js';
 import { cleanupTempVoice } from './voice.js';
 import { autoRoleSweep, ensureIntentFlags } from './members.js';
+import { bumpReminderTick, bumpScan } from './bump.js';
+import { sendDueReminders, finishDueGiveaways } from './community.js';
 
 const SETUP_EVERY_MS = 10 * 60_000;
 const PAGES_PER_CHANNEL = 5;
@@ -140,7 +143,13 @@ export async function runCron(bot, { force = false } = {}) {
     report.tempVoice = await step('tempVoice', () => cleanupTempVoice(bot));
     report.permissions = await step('permissions', async () => (await fillCommandPermissions(bot)).changed);
     report.autoRole = await step('autoRole', () => autoRoleSweep(bot));
-    await step('prune', () => bot.store.pruneModMessages(30));
+    report.bump = await step('bump', async () => ({ found: await bumpScan(bot), reminded: await bumpReminderTick(bot) }));
+    report.reminders = await step('reminders', () => sendDueReminders(bot));
+    report.giveaways = await step('giveaways', () => finishDueGiveaways(bot));
+    await step('prune', async () => {
+      await bot.store.pruneModMessages(30);
+      await bot.store.pruneMessageCache(7);
+    });
     await bot.store.setState('cron_last_run', { at: Date.now(), report });
   } finally {
     await bot.store.releaseCronLock();

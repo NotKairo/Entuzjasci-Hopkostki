@@ -8,6 +8,7 @@ import { errorEmbed } from './embeds.js';
 import { isVoiceCustomId, handleVoiceInteraction } from './voice.js';
 import { isRoleCustomId, handleRoleInteraction } from './messages.js';
 import { isTicketCustomId, handleTicketInteraction } from './tickets.js';
+import { isGiveawayCustomId, handleGiveawayInteraction } from './community.js';
 
 const TYPE = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4, MODAL_SUBMIT: 5 };
 const RESPONSE = { PONG: 1, MESSAGE: 4, DEFERRED: 5, DEFERRED_UPDATE: 6, AUTOCOMPLETE: 8 };
@@ -102,6 +103,7 @@ export async function handleInteraction(body, bot) {
     if (isVoiceCustomId(customId)) return handleVoiceInteraction(wrapInteraction(body, bot), bot);
     if (isRoleCustomId(customId)) return handleRoleInteraction(wrapInteraction(body, bot), bot);
     if (isTicketCustomId(customId)) return handleTicketInteraction(wrapInteraction(body, bot), bot);
+    if (isGiveawayCustomId(customId)) return handleGiveawayInteraction(wrapInteraction(body, bot), bot);
     if (body.type === TYPE.COMPONENT) return handleComponent(body, bot);
     return { response: ephemeralMessage('Ten formularz jest już nieaktualny.') };
   }

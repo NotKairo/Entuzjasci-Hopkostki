@@ -19,6 +19,7 @@ import {
   hasModAccess,
 } from './moderation.js';
 import { VIEWS, renderView } from './views.js';
+import { COMMUNITY_COMMANDS } from './communityCommands.js';
 
 // ---------- Budowanie opcji ----------
 const T = { SUB: 1, STRING: 3, INTEGER: 4, USER: 6, CHANNEL: 7, ROLE: 8 };
@@ -472,7 +473,7 @@ const serwer = {
     const embed = {
       color: embeds.COLORS.info,
       title: `🏠 ${guild.name}`,
-      description: guild.description ?? 'Serwer Entuzjastów Hopkostki 🫓',
+      description: guild.description ?? 'Serwer Entuzjastów Hopkostki',
       fields: [
         { name: '👑 Właściciel', value: `<@${guild.owner_id}>`, inline: true },
         { name: '📅 Założony', value: stamp(snowflakeTime(guild.id)), inline: true },
@@ -676,6 +677,23 @@ const ogloszenie = {
 };
 
 // ---------- Narzędzia kanałów ----------
+const CLEAR_FILTERS = [
+  ['wszystkie', 'Wszystkie'],
+  ['boty', 'Tylko od botów'],
+  ['ludzie', 'Tylko od ludzi'],
+  ['linki', 'Z linkami'],
+  ['zalaczniki', 'Z załącznikami lub obrazkami'],
+  ['tekst', 'Zawierające tekst (opcja „tekst”)'],
+];
+const CLEAR_FILTER_FNS = {
+  wszystkie: () => true,
+  boty: (m) => Boolean(m.author?.bot),
+  ludzie: (m) => !m.author?.bot,
+  linki: (m) => /https?:\/\/\S+/i.test(m.content ?? ''),
+  zalaczniki: (m) => Boolean(m.attachments?.length || m.embeds?.some((e) => e.image || e.type === 'image')),
+  tekst: (m, needle) => String(m.content ?? '').toLowerCase().includes(needle),
+};
+
 const clear = {
   permission: P.MANAGE_MESSAGES,
   defer: 'ephemeral',
@@ -687,13 +705,20 @@ const clear = {
     options: [
       int('ilosc', '🔢 Ile ostatnich wiadomości sprawdzić (1–100)', { required: true, min_value: 1, max_value: 100 }),
       user('uzytkownik', '👤 Usuń tylko wiadomości tej osoby (opcjonalnie)'),
+      str('filtr', '🔎 Usuń tylko wybrane wiadomości (opcjonalnie)', { choices: CLEAR_FILTERS.map(([value, name]) => ({ name, value })) }),
+      str('tekst', '🔤 Dla filtra „zawiera tekst” — jaki tekst (bez rozróżniania wielkości liter)', { max_length: 100 }),
     ],
   },
   async execute(ix, bot) {
     const only = ix.getUser('uzytkownik');
+    const filter = CLEAR_FILTER_FNS[ix.opt('filtr') ?? 'wszystkie'];
+    const needle = String(ix.opt('tekst') ?? '').toLowerCase();
+    if (ix.opt('filtr') === 'tekst' && !needle) throw new ReplyError('Podaj tekst w opcji `tekst`.');
     const fetched = await bot.discord.get(`/channels/${ix.channelId}/messages`, { query: { limit: ix.opt('ilosc') } });
     const cutoff = Date.now() - 14 * 86_400_000 + 60_000;
-    const ids = fetched.filter((m) => snowflakeTime(m.id) > cutoff && (!only || m.author.id === only.id)).map((m) => m.id);
+    const ids = fetched
+      .filter((m) => snowflakeTime(m.id) > cutoff && (!only || m.author.id === only.id) && filter(m, needle))
+      .map((m) => m.id);
     const reason = `Clear: ${ix.user.username}`;
     if (ids.length === 1) await bot.discord.delete(`/channels/${ix.channelId}/messages/${ids[0]}`, { reason });
     if (ids.length > 1) await bot.discord.post(`/channels/${ix.channelId}/messages/bulk-delete`, { messages: ids }, { reason });
@@ -707,7 +732,7 @@ const clear = {
         ),
       ],
     });
-    const skipped = only ? 0 : fetched.length - ids.length;
+    const skipped = only || ix.opt('filtr') ? 0 : fetched.length - ids.length;
     const note = skipped ? `\n-# Pominięto ${skipped} wiadomości starszych niż 14 dni (ograniczenie Discorda).` : '';
     return ix.edit({ embeds: [embeds.successEmbed(`Usunięto **${ids.length}** wiadomości.${note}`)] });
   },
@@ -781,7 +806,7 @@ function lockCommand(name, description, locked) {
       const title = locked ? '🔒 Kanał zablokowany' : '🔓 Kanał odblokowany';
       const body = locked
         ? `Pisanie na tym kanale zostało tymczasowo wyłączone przez moderację.\n\n📝 **Powód:** ${reason}`
-        : `Można znowu pisać na tym kanale. Miłej rozmowy! 🫓\n\n📝 **Powód:** ${reason}`;
+        : `Można znowu pisać na tym kanale. Miłej rozmowy!\n\n📝 **Powód:** ${reason}`;
       await bot.discord
         .post(`/channels/${channelId}/messages`, { embeds: [{ ...embeds.simpleEmbed(locked ? 'error' : 'success', title, body), footer: { text: embeds.BRAND } }] })
         .catch(() => {});
@@ -804,7 +829,7 @@ const pomoc = {
       embeds: [
         {
           color: embeds.COLORS.info,
-          title: '🫓 Bot moderacyjny — Entuzjaści Hopkostki',
+          title: 'Bot moderacyjny — Entuzjaści Hopkostki',
           description: 'Czas wybierasz z listy: **minuty, godziny, dni, tygodnie, miesiące**. Listy mają strony **◀ 1 2 3 ▶**.',
           fields: [
             {
@@ -838,13 +863,21 @@ const pomoc = {
             {
               name: '🛠️ Kanały i inne',
               value: [
-                '`/clear` · `/slowmode` · `/lock` · `/unlock`',
-                '`/ogloszenie` — ogłoszenie w embedzie',
-                '`/serwer` · `/avatar` · `/pomoc`',
+                '`/clear` (z filtrami) · `/slowmode` · `/lock` · `/unlock` · `/snipe`',
+                '`/ogloszenie` · `/powiedz` · `/ankieta` · `/konkurs`',
+                '`/emoji dodaj` — emoji z innego serwera · `/rolainfo`',
+              ].join('\n'),
+            },
+            {
+              name: '🎲 Dla wszystkich',
+              value: [
+                '`/profil` · `/serwer` · `/czlonkowie` · `/avatar`',
+                '`/przypomnij` · `/afk` · `/propozycja` · `/losuj`',
+                '`/bumpy` — ranking bumpów i kiedy następny · `/pomoc`',
               ].join('\n'),
             },
           ],
-          footer: { text: `Odpowiedz na wiadomość o karze, a bot doda reakcję 🫓 • ${embeds.BRAND}` },
+          footer: { text: embeds.BRAND },
         },
       ],
     });
@@ -872,6 +905,7 @@ export const COMMANDS = [
   slowmode,
   lockCommand('lock', '🔒 Zablokuj pisanie na kanale (np. podczas kłótni)', true),
   lockCommand('unlock', '🔓 Odblokuj pisanie na kanale', false),
+  ...COMMUNITY_COMMANDS,
   pomoc,
 ];
 

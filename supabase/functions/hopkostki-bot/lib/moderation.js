@@ -78,6 +78,7 @@ export async function getGuildContext(bot, { force = false } = {}) {
       },
       roles: rolesById(guild.roles ?? []),
       rawRoles: guild.roles ?? [],
+      emojis: (guild.emojis ?? []).map((e) => ({ id: e.id, name: e.name, animated: Boolean(e.animated), available: e.available !== false })),
       botUser: botMember.user ?? app.bot,
       botMember,
     };

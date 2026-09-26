@@ -11,6 +11,7 @@ import { P, has, highestPosition, memberPermissions, permissionLabel } from './p
 import { sendPanelMessage, editPanelMessage, deletePanelMessage } from './messages.js';
 import { sendTicketPanel, closeTicket } from './tickets.js';
 import { ensureIntentFlags, membersIntentOn, contentIntentOn } from './members.js';
+import { endGiveaway } from './community.js';
 
 const TEXT_CHANNELS = new Set([0, 5]);
 const byPosition = (a, b) => a.position - b.position;
@@ -58,7 +59,7 @@ async function status(bot) {
 }
 
 async function guildInfo(bot) {
-  if (!bot.discord) return { channels: [], voiceChannels: [], categories: [], roles: [], bot: null };
+  if (!bot.discord) return { channels: [], voiceChannels: [], categories: [], roles: [], emojis: [], bot: null };
   const gctx = await getGuildContext(bot);
   const channels = await bot.discord.get(`/guilds/${gctx.guild.id}/channels`);
   const categories = new Map(channels.filter((c) => c.type === 4).map((c) => [c.id, c.name]));
@@ -84,10 +85,17 @@ async function guildInfo(bot) {
         position: r.position,
         assignable: r.position < botPosition && !has(r.permissions, P.ADMINISTRATOR),
       })),
+    // Własne emoji serwera — do wyboru przy rolach w wiadomościach.
+    emojis: gctx.emojis
+      .filter((e) => e.available)
+      .map((e) => ({ ...e, tag: `<${e.animated ? 'a' : ''}:${e.name}:${e.id}>`, url: `https://cdn.discordapp.com/emojis/${e.id}.${e.animated ? 'gif' : 'png'}?size=48` })),
     bot: {
       missingVoice: missing([P.MANAGE_CHANNELS, P.MOVE_MEMBERS, P.CONNECT, P.MANAGE_ROLES]),
       missingRoles: missing([P.MANAGE_ROLES]),
       missingTickets: missing([P.MANAGE_CHANNELS, P.MANAGE_ROLES]),
+      missingLogs: missing([P.VIEW_AUDIT_LOG, P.VIEW_CHANNEL, P.SEND_MESSAGES, P.EMBED_LINKS, P.ATTACH_FILES]),
+      missingBump: missing([P.VIEW_CHANNEL, P.SEND_MESSAGES, P.EMBED_LINKS, P.READ_MESSAGE_HISTORY]),
+      missingCommunity: missing([P.ADD_REACTIONS, P.CREATE_PUBLIC_THREADS, P.SEND_POLLS, P.MANAGE_GUILD_EXPRESSIONS]),
       membersIntent: membersIntentOn(app),
       contentIntent: contentIntentOn(app),
     },
@@ -142,6 +150,22 @@ export async function handlePanel(bot, { method, path, query = {}, body = {} }) 
     });
   }
   if (method === 'GET' && path === '/commands') return ok({ commands: COMMAND_META });
+
+  // Bump: ostatni bump, kiedy następny i ranking.
+  if (method === 'GET' && path === '/bump') {
+    const [last, ranking, month] = await Promise.all([store.getState('bump'), store.bumpRanking({ limit: 10 }), store.bumpRanking({ limit: 10, days: 30 })]);
+    return ok({ last, ranking, month, now: Date.now() });
+  }
+
+  // Konkursy (/konkurs) — lista i zakończenie przed czasem.
+  if (method === 'GET' && path === '/giveaways') return ok({ giveaways: await store.listGiveaways({ limit: 25 }), now: Date.now() });
+  const giveawayMatch = /^\/giveaways\/(\d+)\/end$/.exec(path);
+  if (method === 'POST' && giveawayMatch) {
+    const giveaway = await store.getGiveaway(Number(giveawayMatch[1]));
+    if (!giveaway || giveaway.ended) return fail(404, 'Nie ma takiego trwającego konkursu');
+    if (!bot.discord) return fail(503, 'Bot nie jest skonfigurowany (brak DISCORD_TOKEN).');
+    return attempt(async () => ({ giveaway: await endGiveaway(bot, giveaway) }));
+  }
 
   if (method === 'POST' && path === '/setup') {
     if (!bot.discord) return fail(503, 'Brak sekretu DISCORD_TOKEN w Supabase.');

@@ -80,7 +80,7 @@ function warnLines(ctx, { points, totals }) {
   return lines;
 }
 
-export const BRAND = 'Entuzjaści Hopkostki 🫓';
+export const BRAND = 'Entuzjaści Hopkostki';
 
 function footer(text, guild) {
   const icon = guildIconUrl(guild);

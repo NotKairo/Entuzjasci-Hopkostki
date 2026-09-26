@@ -49,7 +49,7 @@ export const DEFAULT_CONFIG = {
     status: 'online',
     rotateSeconds: 30,
     activities: [
-      { type: 'custom', text: '🫓 Pilnuję porządku na Hopkostkach' },
+      { type: 'custom', text: 'Pilnuję porządku na Hopkostkach' },
       { type: 'watching', text: '{czlonkowie} Entuzjastów Hopkostki' },
       { type: 'custom', text: '🟢 {online} osób online • wpisz /pomoc' },
       { type: 'playing', text: '/pomoc • moderacja 24/7' },
@@ -102,8 +102,76 @@ export const DEFAULT_CONFIG = {
       color: '#57F287',
     },
     goodbye: { enabled: false, channelId: '', message: '**{nick}** opuścił(a) serwer. Zostało nas {liczba}.' },
-    // Wejścia i wyjścia (z wiekiem konta) w kanale logów moderacji — pomaga wyłapać multikonta.
-    logJoins: false,
+  },
+
+  // Logi serwera jak w Carl-bocie. Każda grupa może mieć własny kanał ('' = kanał główny channelId).
+  // Zmiany ról, pseudonimów, kanałów, ról serwera, bany i kicki pochodzą z dziennika zdarzeń Discorda
+  // (bot potrzebuje uprawnienia „Wyświetlanie dziennika zdarzeń”), więc widać też, KTO coś zrobił.
+  logs: {
+    enabled: false,
+    channelId: '',
+    messagesChannelId: '',
+    membersChannelId: '',
+    moderationChannelId: '',
+    serverChannelId: '',
+    voiceChannelId: '',
+    ignoreBots: true,
+    ignoredChannelIds: [],
+    events: {
+      messageDelete: true,
+      messageEdit: true,
+      messageBulk: true,
+      memberJoin: true,
+      memberLeave: true,
+      memberRoles: true,
+      memberNick: true,
+      memberBan: true,
+      memberUnban: true,
+      memberKick: true,
+      memberTimeout: true,
+      channelCreate: true,
+      channelUpdate: true,
+      channelDelete: true,
+      roleCreate: true,
+      roleUpdate: true,
+      roleDelete: true,
+      emojiUpdate: true,
+      serverUpdate: true,
+      inviteCreate: false,
+      voiceJoin: true,
+      voiceLeave: true,
+      voiceMove: true,
+    },
+  },
+
+  // Przypominajka o bumpie na DISBOARD (jak Fibo): po udanym /bump bot odpowiada podziękowaniem,
+  // a po intervalMinutes przypomina (odpowiedzią na ostatni bump) i oznacza wybrane role.
+  // Zmienne: {uzytkownik} {nick} {liczba} (który to bump tej osoby) {nastepny} (kiedy kolejny)
+  bump: {
+    enabled: false,
+    channelId: '',
+    roleIds: [],
+    intervalMinutes: 120,
+    thanks: {
+      enabled: true,
+      reply: true,
+      title: 'Dzięki za Bumpnięcie serwera!',
+      message: '{uzytkownik} — to już Twój **{liczba}.** bump. Kolejny możliwy {nastepny}.',
+      color: '#5865F2',
+    },
+    reminder: {
+      reply: true,
+      title: 'Czas na Bump!',
+      message: 'Bumpnij serwer używając komendy </bump:947088344167366698>!',
+      color: '#5865F2',
+    },
+  },
+
+  // Propozycje (/propozycja): embed na wybranym kanale z reakcjami do głosowania i opcjonalnym wątkiem.
+  suggestions: {
+    enabled: false,
+    channelId: '',
+    thread: true,
   },
 
   // Automatyczne kary po przekroczeniu progu aktywnych punktów ostrzeżeń.

@@ -218,7 +218,7 @@ async function casesView(bot, type, page) {
       {
         color: embeds.COLORS.info,
         title: `🗂️ Sprawy moderacyjne${filter ? ` — ${embeds.ACTION_LABELS[filter]}` : ''}`,
-        ...(items.length ? {} : { description: 'Brak spraw. Spokojnie jak na Hopkostkach. 🫓' }),
+        ...(items.length ? {} : { description: 'Brak spraw. Spokojnie jak na Hopkostkach.' }),
         fields: items.map((c) => caseField(c, { withUser: true })),
         footer: { text: footerText(current, pages, `${total} spraw`) },
       },

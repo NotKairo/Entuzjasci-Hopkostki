@@ -104,6 +104,11 @@ function cleanTicketTypes(list, fallback) {
 function cleanValue(path, input, current, def) {
   if (path === 'commandPermissions') return cleanCommandPermissions(input, current);
   if (/roleIds$/i.test(path)) return Array.isArray(input) ? cleanRoleIds(input) : current;
+  if (/channelIds$/i.test(path)) return Array.isArray(input) ? cleanRoleIds(input) : current;
+  if (path === 'bump.intervalMinutes') {
+    const n = Math.floor(Number(input));
+    return Number.isFinite(n) ? Math.min(1440, Math.max(30, n)) : current;
+  }
   if (path === 'tickets.types') return cleanTicketTypes(input, current);
   if (path === 'tickets.maxOpen') {
     const n = Math.floor(Number(input));

@@ -60,7 +60,7 @@ test('opisy statusu: rotacja z zegara i zmienne', () => {
     status: 'online',
     rotateSeconds: 30,
     activities: [
-      { type: 'custom', text: '🫓 Pilnuję porządku' },
+      { type: 'custom', text: 'Pilnuję porządku' },
       { type: 'watching', text: '{czlonkowie} Entuzjastów' },
     ],
   };
@@ -69,7 +69,7 @@ test('opisy statusu: rotacja z zegara i zmienne', () => {
   assert.equal(pickActivity(presence, 60_000).nextAt, 90_000);
   assert.deepEqual(presencePayload(presence, presence.activities[0], {}), {
     since: null,
-    activities: [{ type: 4, name: 'Custom Status', state: '🫓 Pilnuję porządku' }],
+    activities: [{ type: 4, name: 'Custom Status', state: 'Pilnuję porządku' }],
     status: 'online',
     afk: false,
   });

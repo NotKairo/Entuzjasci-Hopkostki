@@ -110,6 +110,42 @@ function mapSentMessage(r) {
   return { id: r.id, channelId: r.channel_id, messageId: r.message_id, data: r.data, createdAt: ms(r.created_at), updatedAt: ms(r.updated_at) };
 }
 
+function mapCachedMessage(r) {
+  return {
+    id: r.id,
+    channelId: r.channel_id,
+    authorId: r.author_id,
+    authorTag: r.author_tag,
+    authorAvatar: r.author_avatar,
+    content: r.content ?? '',
+    attachments: r.attachments ?? [],
+    createdAt: ms(r.created_at),
+    editedAt: ms(r.edited_at),
+    deletedAt: ms(r.deleted_at),
+  };
+}
+
+function mapReminder(r) {
+  return { id: r.id, userId: r.user_id, channelId: r.channel_id, text: r.text, dueAt: ms(r.due_at), createdAt: ms(r.created_at) };
+}
+
+function mapGiveaway(r) {
+  return {
+    id: r.id,
+    channelId: r.channel_id,
+    messageId: r.message_id,
+    prize: r.prize,
+    winners: r.winners,
+    hostId: r.host_id,
+    requiredRoleId: r.required_role_id,
+    entrants: r.entrants ?? [],
+    winnerIds: r.winner_ids ?? [],
+    endsAt: ms(r.ends_at),
+    ended: r.ended,
+    createdAt: ms(r.created_at),
+  };
+}
+
 // configTtlMs: jak długo trzymać konfigurację w pamięci (mniej zapytań = szybsza odpowiedź dla Discorda).
 export function createStore(query, { configTtlMs = 10_000 } = {}) {
   const one = async (text, params) => (await query(text, params))[0] ?? null;
@@ -538,6 +574,184 @@ export function createStore(query, { configTtlMs = 10_000 } = {}) {
 
     async deleteSentMessage(id) {
       await query('delete from bot.sent_messages where id = $1::int', [id]);
+    },
+
+    // ---------- Pamięć wiadomości (logi usunięć/edycji, /snipe) ----------
+    async cacheMessage({ id, channelId, authorId, authorTag, authorAvatar, content, attachments, createdAt }) {
+      await query(
+        `insert into bot.message_cache (id, channel_id, author_id, author_tag, author_avatar, content, attachments, created_at)
+         values ($1::text, $2::text, $3::text, $4::text, $5::text, $6::text, $7::text::jsonb, coalesce($8::timestamptz, now()))
+         on conflict (id) do nothing`,
+        [id, channelId, authorId, authorTag ?? null, authorAvatar ?? null, content ?? '', JSON.stringify(attachments ?? []), createdAt ? new Date(createdAt).toISOString() : null],
+      );
+    },
+
+    // Zapisuje nową treść i zwraca wiadomość sprzed edycji (null, jeśli jej nie znamy).
+    async editCachedMessage(id, content) {
+      const row = await one(
+        `with prev as (select * from bot.message_cache where id = $1::text)
+         update bot.message_cache m set content = $2::text, edited_at = now() from prev where m.id = prev.id
+         returning prev.*`,
+        [id, content ?? ''],
+      );
+      return row ? mapCachedMessage(row) : null;
+    },
+
+    async deleteCachedMessages(ids) {
+      if (!ids.length) return [];
+      const rows = await query(
+        `update bot.message_cache set deleted_at = now()
+         where id in (select jsonb_array_elements_text($1::text::jsonb)) and deleted_at is null returning *`,
+        [JSON.stringify(ids)],
+      );
+      return rows.map(mapCachedMessage).sort((a, b) => a.createdAt - b.createdAt);
+    },
+
+    async lastDeletedMessages(channelId, { limit = 10, withinMinutes = 120 } = {}) {
+      const rows = await query(
+        `select * from bot.message_cache where channel_id = $1::text and deleted_at > now() - make_interval(mins => $3::int)
+         order by deleted_at desc limit $2::int`,
+        [channelId, limit, withinMinutes],
+      );
+      return rows.map(mapCachedMessage);
+    },
+
+    async lastEditedMessages(channelId, { limit = 10, withinMinutes = 120 } = {}) {
+      const rows = await query(
+        `select * from bot.message_cache where channel_id = $1::text and edited_at > now() - make_interval(mins => $3::int)
+         order by edited_at desc limit $2::int`,
+        [channelId, limit, withinMinutes],
+      );
+      return rows.map(mapCachedMessage);
+    },
+
+    async pruneMessageCache(days = 7) {
+      await query('delete from bot.message_cache where created_at < now() - make_interval(days => $1::int)', [days]);
+    },
+
+    // ---------- Bumpy ----------
+    async addBump({ userId, channelId, messageId }) {
+      const row = await one(
+        `insert into bot.bumps (user_id, channel_id, message_id) values ($1::text, $2::text, $3::text)
+         on conflict (message_id) do nothing returning *`,
+        [userId, channelId, messageId],
+      );
+      return row ? { id: row.id, userId: row.user_id, createdAt: ms(row.created_at) } : null;
+    },
+
+    async bumpRanking({ limit = 10, days = null } = {}) {
+      const rows = await query(
+        `select user_id, count(*)::int as n, max(created_at) as last_at from bot.bumps
+         where $2::int is null or created_at > now() - make_interval(days => $2::int)
+         group by user_id order by n desc, last_at desc limit $1::int`,
+        [limit, days],
+      );
+      return rows.map((r) => ({ userId: r.user_id, count: r.n, lastAt: ms(r.last_at) }));
+    },
+
+    async bumpCount(userId) {
+      return (await one('select count(*)::int as n from bot.bumps where user_id = $1::text', [userId]))?.n ?? 0;
+    },
+
+    // ---------- Przypomnienia ----------
+    async addReminder({ userId, channelId, text, dueAt }) {
+      const row = await one(
+        `insert into bot.reminders (user_id, channel_id, text, due_at) values ($1::text, $2::text, $3::text, $4::timestamptz) returning *`,
+        [userId, channelId, text, new Date(dueAt).toISOString()],
+      );
+      return mapReminder(row);
+    },
+
+    async listReminders(userId) {
+      return (await query('select * from bot.reminders where user_id = $1::text order by due_at', [userId])).map(mapReminder);
+    },
+
+    async removeReminder(id, userId) {
+      const row = await one('delete from bot.reminders where id = $1::int and user_id = $2::text returning *', [id, userId]);
+      return row ? mapReminder(row) : null;
+    },
+
+    // Zabiera (usuwa) przypomnienia, których czas minął — każde wysyłamy tylko raz.
+    async takeDueReminders(limit = 20) {
+      const rows = await query(
+        `delete from bot.reminders where id in (select id from bot.reminders where due_at <= now() order by due_at limit $1::int) returning *`,
+        [limit],
+      );
+      return rows.map(mapReminder);
+    },
+
+    // ---------- Konkursy ----------
+    async addGiveaway({ channelId, prize, winners, hostId, requiredRoleId, endsAt }) {
+      const row = await one(
+        `insert into bot.giveaways (channel_id, prize, winners, host_id, required_role_id, ends_at)
+         values ($1::text, $2::text, $3::int, $4::text, $5::text, $6::timestamptz) returning *`,
+        [channelId, prize, winners, hostId, requiredRoleId || null, new Date(endsAt).toISOString()],
+      );
+      return mapGiveaway(row);
+    },
+
+    async setGiveawayMessage(id, messageId) {
+      await query('update bot.giveaways set message_id = $2::text where id = $1::int', [id, messageId]);
+    },
+
+    async getGiveaway(id) {
+      const row = await one('select * from bot.giveaways where id = $1::int', [id]);
+      return row ? mapGiveaway(row) : null;
+    },
+
+    async getGiveawayByMessage(messageId) {
+      const row = await one('select * from bot.giveaways where message_id = $1::text', [messageId]);
+      return row ? mapGiveaway(row) : null;
+    },
+
+    async listGiveaways({ limit = 25 } = {}) {
+      return (await query('select * from bot.giveaways order by id desc limit $1::int', [limit])).map(mapGiveaway);
+    },
+
+    // Dopisuje albo wypisuje osobę (jednym zapytaniem, więc równoczesne kliknięcia się nie gubią).
+    async toggleGiveawayEntry(id, userId) {
+      const row = await one(
+        `update bot.giveaways set entrants = case
+           when entrants @> jsonb_build_array($2::text) then entrants - $2::text
+           else entrants || jsonb_build_array($2::text) end
+         where id = $1::int and not ended returning *`,
+        [id, userId],
+      );
+      return row ? mapGiveaway(row) : null;
+    },
+
+    async dueGiveaways() {
+      return (await query('select * from bot.giveaways where not ended and ends_at <= now() order by ends_at')).map(mapGiveaway);
+    },
+
+    async finishGiveaway(id, winnerIds) {
+      const row = await one(
+        'update bot.giveaways set ended = true, winner_ids = $2::text::jsonb, ends_at = least(ends_at, now()) where id = $1::int returning *',
+        [id, JSON.stringify(winnerIds)],
+      );
+      return row ? mapGiveaway(row) : null;
+    },
+
+    async deleteGiveaway(id) {
+      await query('delete from bot.giveaways where id = $1::int', [id]);
+    },
+
+    // ---------- AFK ----------
+    async setAfk(userId, reason) {
+      await query(
+        `insert into bot.afk (user_id, reason, since) values ($1::text, $2::text, now())
+         on conflict (user_id) do update set reason = excluded.reason, since = now()`,
+        [userId, reason ?? ''],
+      );
+    },
+
+    async removeAfk(userId) {
+      const row = await one('delete from bot.afk where user_id = $1::text returning *', [userId]);
+      return row ? { userId: row.user_id, reason: row.reason, since: ms(row.since) } : null;
+    },
+
+    async listAfk() {
+      return (await query('select * from bot.afk')).map((r) => ({ userId: r.user_id, reason: r.reason, since: ms(r.since) }));
     },
 
     async stats() {

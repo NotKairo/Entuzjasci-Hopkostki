@@ -34,6 +34,9 @@
         <a href="#ustawienia" data-view="ustawienia"><span>Ustawienia</span></a>
         <a href="#uprawnienia" data-view="uprawnienia"><span>Uprawnienia</span></a>
         <a href="#czlonkowie" data-view="czlonkowie"><span>Nowe osoby</span></a>
+        <a href="#logi" data-view="logi"><span>Logi serwera</span></a>
+        <a href="#bump" data-view="bump"><span>Bump</span></a>
+        <a href="#spolecznosc" data-view="spolecznosc"><span>Społeczność</span></a>
         <a href="#tickety" data-view="tickety"><span>Tickety</span></a>
         <a href="#glosowe" data-view="glosowe"><span>Kanały głosowe</span></a>
         <a href="#wiadomosci" data-view="wiadomosci"><span>Wiadomości</span></a>
@@ -125,8 +128,8 @@
             <p class="muted small">Gdy ktoś odpowie (reply) na wiadomość bota o karze, bot doda pod jego odpowiedzią tę reakcję.</p>
             <label class="toggle"><input type="checkbox" data-path="replyReaction.enabled"><span></span>Włączone</label>
             <label class="field">
-              <span>Emoji (zwykłe lub własne w formacie <code>&lt;:nazwa:id&gt;</code>)</span>
-              <input type="text" data-path="replyReaction.emoji" maxlength="100">
+              <span>Emoji (zwykłe lub własne emoji serwera)</span>
+              <div class="emoji-own"><input type="text" data-path="replyReaction.emoji" maxlength="100"><button type="button" class="btn ghost small emoji-btn" data-emoji-open data-emoji-path="replyReaction.emoji">Wybierz emoji</button></div>
             </label>
           </div>
         </div>
@@ -200,7 +203,7 @@
       <section id="view-czlonkowie" class="view">
         <header class="view-head">
           <h2>Nowe osoby</h2>
-          <p class="muted">Automatyczne role po wejściu na serwer, powitanie, pożegnanie i log wejść. Zmienne w tekstach: <code>{uzytkownik}</code> (oznaczenie), <code>{nick}</code>, <code>{serwer}</code>, <code>{liczba}</code> (liczba członków).</p>
+          <p class="muted">Automatyczne role po wejściu na serwer, powitanie i pożegnanie (log wejść i wyjść jest w zakładce Logi serwera). Zmienne w tekstach: <code>{uzytkownik}</code> (oznaczenie), <code>{nick}</code>, <code>{serwer}</code>, <code>{liczba}</code> (liczba członków).</p>
         </header>
         <div id="members-warning" class="banner warn hidden"></div>
         <div class="grid two">
@@ -213,8 +216,7 @@
           </div>
           <div class="card">
             <h3>Log wejść i wyjść</h3>
-            <label class="toggle"><input type="checkbox" data-path="members.logJoins"><span></span>Zapisuj wejścia i wyjścia w kanale logów moderacji</label>
-            <p class="muted small">Przy wejściu widać, kiedy założono konto — konta młodsze niż 7 dni są oznaczone (tak często wyglądają multikonta).</p>
+            <p class="muted small">Wejścia i wyjścia (z wiekiem konta — konta młodsze niż 7 dni są oznaczone) są teraz częścią logów serwera. Ustawisz je w zakładce <a href="#logi" data-view-link="logi">Logi serwera</a>.</p>
           </div>
         </div>
         <div class="grid two">
@@ -236,6 +238,124 @@
             <label class="field"><span>Wiadomość</span><textarea id="goodbye-message" data-path="members.goodbye.message" rows="3" maxlength="1500"></textarea></label>
             <div class="chips" data-insert-into="goodbye-message"></div>
           </div>
+        </div>
+      </section>
+
+      <!-- LOGI SERWERA -->
+      <section id="view-logi" class="view">
+        <header class="view-head">
+          <h2>Logi serwera</h2>
+          <p class="muted">Jak w Carl-bocie: usunięte i edytowane wiadomości (z treścią), wejścia i wyjścia, zmiany ról i pseudonimów, bany, kicki, timeouty, kanały, role, emoji i kanały głosowe. Zmiany z dziennika zdarzeń Discorda pokazują też, kto je zrobił.</p>
+        </header>
+        <div id="logs-warning" class="banner warn hidden"></div>
+        <div class="grid two">
+          <div class="card">
+            <h3>Kanały</h3>
+            <label class="toggle"><input type="checkbox" data-path="logs.enabled"><span></span>Włącz logi serwera</label>
+            <label class="field"><span>Kanał główny (dla wszystkiego, co nie ma własnego)</span><select data-path="logs.channelId" data-channel-select="none"></select></label>
+            <div class="grid two tight">
+              <label class="field"><span>Wiadomości</span><select data-path="logs.messagesChannelId" data-channel-select="inherit"></select></label>
+              <label class="field"><span>Członkowie</span><select data-path="logs.membersChannelId" data-channel-select="inherit"></select></label>
+              <label class="field"><span>Moderacja</span><select data-path="logs.moderationChannelId" data-channel-select="inherit"></select></label>
+              <label class="field"><span>Serwer</span><select data-path="logs.serverChannelId" data-channel-select="inherit"></select></label>
+              <label class="field"><span>Kanały głosowe</span><select data-path="logs.voiceChannelId" data-channel-select="inherit"></select></label>
+            </div>
+            <label class="toggle"><input type="checkbox" data-path="logs.ignoreBots"><span></span>Pomijaj wiadomości i kanały głosowe botów</label>
+            <div class="field"><span>Pomijane kanały (np. spam, boty)</span><div data-channel-picker-slot="logs.ignoredChannelIds"></div></div>
+            <p class="muted small">Treść usuniętych wiadomości bot pamięta przez 7 dni. Kary nałożone komendami bota są w logach moderacji (Ustawienia), więc tu się nie dublują.</p>
+          </div>
+          <div class="card">
+            <h3>Co logować</h3>
+            <div id="log-events"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- BUMP -->
+      <section id="view-bump" class="view">
+        <header class="view-head">
+          <h2>Przypominajka o bumpie</h2>
+          <p class="muted">Jak Fibo: gdy ktoś podbije serwer komendą <code>/bump</code> bota DISBOARD, bot odpowiada na tę wiadomość podziękowaniem, a po 2 godzinach przypomina „Czas na Bump!” (odpowiedzią na ostatni bump) i oznacza wybrane role.</p>
+        </header>
+        <div id="bump-warning" class="banner warn hidden"></div>
+        <div class="grid two">
+          <div class="card">
+            <h3>Ustawienia</h3>
+            <label class="toggle"><input type="checkbox" data-path="bump.enabled"><span></span>Włącz przypominajkę o bumpie</label>
+            <label class="field"><span>Kanał przypomnień</span><select data-path="bump.channelId" data-channel-select="bump"></select></label>
+            <div class="field"><span>Kogo oznaczyć w przypomnieniu</span><div data-picker-slot="cfg:bump.roleIds"></div></div>
+            <label class="field"><span>Przypomnienie po (minutach)</span><input type="number" min="30" max="1440" data-path="bump.intervalMinutes"></label>
+            <p class="muted small">DISBOARD pozwala na bump co 120 minut. Gdy wybierzesz kanał, bot co 2 minuty sprawdza też jego ostatnie wiadomości — bump nie przepadnie nawet w chwili przerwy połączenia.</p>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Statystyki</h3><button type="button" class="btn ghost small" id="bump-refresh">Odśwież</button></div>
+            <p id="bump-last" class="muted"></p>
+            <div class="table-wrap"><table class="table compact" id="bump-ranking"></table></div>
+          </div>
+        </div>
+        <div class="grid two">
+          <div class="card">
+            <h3>Podziękowanie</h3>
+            <label class="toggle"><input type="checkbox" data-path="bump.thanks.enabled"><span></span>Dziękuj za bump</label>
+            <label class="toggle"><input type="checkbox" data-path="bump.thanks.reply"><span></span>Jako odpowiedź na wiadomość z bumpem</label>
+            <label class="field"><span>Tytuł</span><input type="text" data-path="bump.thanks.title" maxlength="200"></label>
+            <label class="field"><span>Wiadomość</span><textarea id="bump-thanks-message" data-path="bump.thanks.message" rows="3" maxlength="1500"></textarea></label>
+            <div class="chips" data-insert-into="bump-thanks-message" data-vars="bump"></div>
+            <label class="field"><span>Kolor</span>
+              <div class="color-row"><input type="color" data-color-for="bump.thanks.color"><input type="text" data-path="bump.thanks.color" maxlength="7"></div>
+            </label>
+          </div>
+          <div class="card">
+            <h3>Przypomnienie</h3>
+            <label class="toggle"><input type="checkbox" data-path="bump.reminder.reply"><span></span>Jako odpowiedź na ostatni bump</label>
+            <label class="field"><span>Tytuł</span><input type="text" data-path="bump.reminder.title" maxlength="200"></label>
+            <label class="field"><span>Wiadomość</span><textarea id="bump-reminder-message" data-path="bump.reminder.message" rows="3" maxlength="1500"></textarea></label>
+            <div class="chips" data-insert-into="bump-reminder-message" data-vars="bumpReminder"></div>
+            <label class="field"><span>Kolor</span>
+              <div class="color-row"><input type="color" data-color-for="bump.reminder.color"><input type="text" data-path="bump.reminder.color" maxlength="7"></div>
+            </label>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Podgląd</h3>
+          <div id="bump-preview" class="preview"></div>
+        </div>
+      </section>
+
+      <!-- SPOŁECZNOŚĆ -->
+      <section id="view-spolecznosc" class="view">
+        <header class="view-head">
+          <h2>Społeczność</h2>
+          <p class="muted">Komendy na co dzień (jak w Carl-bocie, ProBocie i StartIT). Kto może ich używać, ustawisz w zakładce Uprawnienia.</p>
+        </header>
+        <div id="community-warning" class="banner warn hidden"></div>
+        <div class="grid two">
+          <div class="card">
+            <h3>Propozycje</h3>
+            <label class="toggle"><input type="checkbox" data-path="suggestions.enabled"><span></span>Włącz <code>/propozycja</code></label>
+            <label class="field"><span>Kanał propozycji</span><select data-path="suggestions.channelId" data-channel-select="pick"></select></label>
+            <label class="toggle"><input type="checkbox" data-path="suggestions.thread"><span></span>Twórz wątek do dyskusji pod każdą propozycją</label>
+            <p class="muted small">Propozycja trafia na kanał jako embed z reakcjami do głosowania.</p>
+          </div>
+          <div class="card">
+            <h3>Komendy</h3>
+            <ul class="command-list">
+              <li><code>/ankieta</code> — ankieta Discorda (odpowiedzi rozdzielone średnikiem, można dodać emoji)</li>
+              <li><code>/konkurs start · zakoncz · losuj · lista</code> — konkursy z przyciskiem „Weź udział”</li>
+              <li><code>/przypomnij dodaj · lista · usun</code> — przypomnienia na kanale albo w DM</li>
+              <li><code>/afk</code> — status AFK, oznaczenie takiej osoby dostaje odpowiedź</li>
+              <li><code>/propozycja</code> — propozycja z głosowaniem</li>
+              <li><code>/snipe</code> — ostatnio usunięta wiadomość (wymaga logów wiadomości)</li>
+              <li><code>/powiedz</code> — wiadomość jako bot, także jako odpowiedź na czyjąś wiadomość</li>
+              <li><code>/emoji dodaj · info</code> — emoji z innego serwera albo z linku</li>
+              <li><code>/profil</code> · <code>/rolainfo</code> · <code>/czlonkowie</code> · <code>/losuj</code> · <code>/bumpy</code></li>
+              <li><code>/clear</code> — teraz z filtrami: boty, ludzie, linki, załączniki, tekst</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Konkursy</h3><button type="button" class="btn ghost small" id="giveaways-refresh">Odśwież</button></div>
+          <div class="table-wrap"><table class="table" id="giveaways-table"></table></div>
         </div>
       </section>
 

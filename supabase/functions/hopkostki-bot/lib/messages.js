@@ -13,6 +13,21 @@ const BUTTON_STYLES = { niebieski: 1, szary: 2, zielony: 3, czerwony: 4 };
 export const ROLE_MODES = ['none', 'buttons', 'select'];
 
 const text = (value, max) => String(value ?? '').trim().slice(0, max);
+const CUSTOM_EMOJI = /^<(a?):(\w{2,32}):(\d{15,25})>$/;
+const UNICODE_EMOJI = /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[#*0-9]\uFE0F?\u20E3)[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\uFE0F\u200D\u20E3]*$/u;
+
+// Emoji przy roli: własne emoji serwera (<:nazwa:id>, <a:nazwa:id>) albo zwykłe (🎮). Coś innego = brak.
+export function cleanEmoji(value) {
+  const raw = String(value ?? '').trim();
+  if (CUSTOM_EMOJI.test(raw)) return raw;
+  return raw.length <= 32 && UNICODE_EMOJI.test(raw) ? raw : '';
+}
+
+export function emojiObject(value) {
+  const custom = CUSTOM_EMOJI.exec(String(value ?? ''));
+  if (custom) return { id: custom[3], name: custom[2], animated: Boolean(custom[1]) };
+  return value ? { name: value } : null;
+}
 
 // Dane z panelu -> uporządkowane dane (to zapisujemy w bazie, żeby dało się wczytać do edycji).
 export function cleanMessageData(input = {}) {
@@ -42,6 +57,7 @@ export function cleanMessageData(input = {}) {
           label: text(item?.label, 80),
           description: text(item?.description, 100),
           style: Object.hasOwn(BUTTON_STYLES, item?.style) ? item.style : 'niebieski',
+          emoji: cleanEmoji(item?.emoji),
         }))
         .filter((item) => SNOWFLAKE.test(item.roleId) && !seen.has(item.roleId) && seen.add(item.roleId)),
     },
@@ -77,14 +93,24 @@ export function buildMessagePayload(data, gctx) {
     if (role.managed) throw new ActionError(`Roli „${role.name}” zarządza integracja — nie da się jej rozdawać.`);
     if (has(role.permissions, P.ADMINISTRATOR)) throw new ActionError(`Rola „${role.name}” ma uprawnienia administratora — nie można jej rozdawać każdemu.`);
     if (role.position >= botPosition) throw new ActionError(`Rola „${role.name}” jest wyżej niż rola bota — przesuń rolę bota wyżej w ustawieniach serwera.`);
-    return { ...item, name: role.name };
+    const custom = CUSTOM_EMOJI.exec(item.emoji ?? '');
+    if (custom && gctx.emojis && !gctx.emojis.some((e) => e.id === custom[3])) {
+      throw new ActionError(`Emoji :${custom[2]}: nie jest z tego serwera — wybierz emoji serwera z listy albo zwykłe emoji.`);
+    }
+    return { ...item, name: role.name, emojiObj: emojiObject(item.emoji) };
   });
 
   if (mode === 'buttons') {
     for (let i = 0; i < roles.length; i += 5) {
       payload.components.push({
         type: 1,
-        components: roles.slice(i, i + 5).map((r) => ({ type: 2, style: BUTTON_STYLES[r.style], label: r.label || r.name, custom_id: `rr|b|${r.roleId}` })),
+        components: roles.slice(i, i + 5).map((r) => ({
+          type: 2,
+          style: BUTTON_STYLES[r.style],
+          label: r.label || r.name,
+          ...(r.emojiObj ? { emoji: r.emojiObj } : {}),
+          custom_id: `rr|b|${r.roleId}`,
+        })),
       });
     }
   } else {
@@ -97,7 +123,12 @@ export function buildMessagePayload(data, gctx) {
           placeholder: data.roles.placeholder || 'Wybierz role',
           min_values: 0,
           max_values: data.roles.multiple ? roles.length : 1,
-          options: roles.map((r) => ({ label: (r.label || r.name).slice(0, 100), value: r.roleId, ...(r.description ? { description: r.description } : {}) })),
+          options: roles.map((r) => ({
+            label: (r.label || r.name).slice(0, 100),
+            value: r.roleId,
+            ...(r.description ? { description: r.description } : {}),
+            ...(r.emojiObj ? { emoji: r.emojiObj } : {}),
+          })),
         },
       ],
     });

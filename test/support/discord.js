@@ -11,6 +11,8 @@ export const ROLES = [
   { id: 'r-admin', name: 'Admin', position: 9, permissions: String(1n << 3n), color: 0xe74c3c },
 ];
 
+export const EMOJIS = [{ id: '100000000000000070', name: 'hopka', animated: false }];
+
 let counter = 0n;
 export const snowflake = (ms = Date.now()) => String((BigInt(ms - 1420070400000) << 22n) | (counter++ % 4096n));
 
@@ -49,6 +51,8 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
     editedMessages: [],
     removedOverwrites: [],
     appFlags: 0,
+    emojis: [],
+    threads: [],
   };
 
   const channelMessages = (id) => {
@@ -78,7 +82,16 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
       state.commands = body;
       return body;
     }],
-    ['GET', /^\/guilds\/g1$/, () => ({ id: GUILD, name: 'Entuzjaści Hopkostki', icon: null, owner_id: 'owner', roles: ROLES, approximate_member_count: 1337 })],
+    ['GET', /^\/guilds\/g1$/, () => ({ id: GUILD, name: 'Entuzjaści Hopkostki', icon: null, owner_id: 'owner', roles: ROLES, approximate_member_count: 1337, emojis: EMOJIS })],
+    ['POST', /^\/guilds\/g1\/emojis$/, (m, body) => {
+      const emoji = { id: snowflake(), name: body.name, animated: false };
+      state.emojis.push({ ...emoji, image: body.image });
+      return emoji;
+    }],
+    ['POST', /^\/channels\/([\w-]+)\/messages\/(\d+)\/threads$/, ([, channel, id], body) => {
+      state.threads.push({ channel, id, ...body });
+      return { id: snowflake(), ...body };
+    }],
     ['GET', /^\/guilds\/g1\/channels$/, () => [
       { id: 'cat', type: 4, name: 'Moderacja', position: 0 },
       { id: 'chan', type: 0, name: 'ogolny', position: 1, parent_id: null },

@@ -6,6 +6,7 @@ import { P, has } from './permissions.js';
 import { DiscordError } from './rest.js';
 import { isOurGuild, describeError, ActionError } from './moderation.js';
 import { colorInt, errorEmbed, successEmbed, COLORS } from './embeds.js';
+import { logVoiceChange } from './logs.js';
 
 const EPHEMERAL = 64;
 const VOICE_CHANNEL = 2;
@@ -87,6 +88,7 @@ export async function onVoiceStateUpdate(bot, state) {
   const channelId = state.channel_id ?? null;
   const previous = await bot.store.getVoiceChannel(userId);
   await bot.store.setVoiceState(userId, channelId);
+  await logVoiceChange(bot, state, previous).catch((error) => console.warn(`[logi:głosowe] ${error.message}`));
   if (previous && previous !== channelId) await deleteIfEmpty(bot, previous);
   if (!channelId || previous === channelId || state.member?.user?.bot) return;
 

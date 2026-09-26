@@ -1,4 +1,4 @@
-# 🫓 Entuzjaści Hopkostki — bot moderacyjny
+# Entuzjaści Hopkostki — bot moderacyjny
 
 Bot moderacyjny na Discorda dla serwera **Entuzjaści Hopkostki**. Działa 24/7 na **Supabase**, więc nie
 musisz trzymać włączonego komputera. Panel konfiguracyjny to strona na GitHub Pages — wystarczy
@@ -65,12 +65,14 @@ W panelu są:
   status i rotujące opisy bota oraz hasło panelu.
 - **Uprawnienia:** dla każdej komendy możesz nadpisać domyślne uprawnienie Discorda i ograniczyć ją do
   wybranych ról — plus tabela pokazująca na żywo, która rola może użyć której komendy.
-- **Nowe osoby:** automatyczne role po wejściu (osobno dla ludzi i botów), powitanie, pożegnanie i log
-  wejść/wyjść z wiekiem konta.
+- **Nowe osoby:** automatyczne role po wejściu (osobno dla ludzi i botów), powitanie i pożegnanie.
+- **Logi serwera:** logi jak w Carl-bocie — patrz niżej.
+- **Bump:** przypominajka o bumpie DISBOARD jak w Fibo, z podziękowaniem i rankingiem — patrz niżej.
+- **Społeczność:** propozycje (`/propozycja`), lista konkursów i opis komend na co dzień.
 - **Tickety:** panel z przyciskami, prywatne kanały ticketów, zapis rozmów — patrz niżej.
 - **Kanały głosowe:** kanały na żądanie — patrz niżej.
-- **Wiadomości:** wysyłanie wiadomości (treść + embed) z przyciskami ról albo listą wyboru ról; wysłane można
-  potem edytować albo usunąć.
+- **Wiadomości:** wysyłanie wiadomości (treść + embed) z przyciskami ról albo listą wyboru ról — każda rola
+  może mieć emoji (własne emoji serwera wybierane z siatki albo zwykłe); wysłane można potem edytować albo usunąć.
 - **Wygląd embedów:** edycja każdej akcji z podglądem na żywo w stylu Discorda (na kanale i w DM).
 - **Ostrzeżenia:** czas wygasania (domyślnie 60 dni), domyślne punkty, progi automatycznych kar
   i wszystkie aktywne ostrzeżenia z odliczaniem na żywo oraz przyciskiem „Usuń”.
@@ -88,6 +90,31 @@ dostaje własny kanał i jest na niego przenoszony; pusty kanał znika sam. Na c
 właściciela**, **Zmień limit**, **Zbanuj**, **Wyrzuć** — osoby wybiera się z listy, nazwę i limit wpisuje w
 okienku. Z panelu korzysta właściciel kanału (oraz osoby z uprawnieniem „Zarządzanie kanałami”).
 
+### Logi serwera
+
+W zakładce **Logi serwera** włączasz logi i wybierasz kanał główny, a osobno (opcjonalnie) kanały dla grup:
+wiadomości, członkowie, moderacja, serwer i kanały głosowe. Każde zdarzenie włączasz osobno:
+- **wiadomości:** usunięte (z treścią i załącznikami), edytowane (przed/po, z linkiem), usuwanie zbiorcze (plik
+  .txt z treściami),
+- **członkowie:** wejścia (z wiekiem konta — młodsze niż 7 dni są oznaczone) i wyjścia, nadane/zabrane role,
+  zmiany pseudonimów,
+- **moderacja:** bany, odbanowania, wyrzucenia i timeouty nałożone ręcznie w Discordzie albo przez inne boty,
+- **serwer:** kanały (utworzenie, zmiany z wartościami przed/po, uprawnienia, usunięcie), role (także zmiany
+  uprawnień), emoji, ustawienia serwera i zaproszenia,
+- **kanały głosowe:** wejścia, wyjścia i przejścia.
+
+Zmiany z dziennika zdarzeń Discorda pokazują, **kto** je zrobił (bot potrzebuje uprawnienia „Wyświetlanie
+dziennika zdarzeń”). Można pominąć boty i wybrane kanały. Treść wiadomości bot pamięta 7 dni (tabela
+`bot.message_cache`, czyszczona przez crona) — z niej korzysta też `/snipe`.
+
+### Bump (DISBOARD)
+
+Jak Fibo: po udanym `/bump` bota DISBOARD bot **odpowiada na tę wiadomość** podziękowaniem (np. „Dzięki za
+Bumpnięcie serwera! @osoba — to już Twój 7. bump. Kolejny możliwy za 2 godziny”), a po 120 minutach wysyła
+**„Czas na Bump!”** jako odpowiedź na ostatni bump, oznaczając wybrane role. Podziękowanie można wyłączyć,
+teksty, kolory i czas zmienić (zmienne: `{uzytkownik}`, `{nick}`, `{liczba}`, `{nastepny}`, `{godzina}`),
+a zakładka pokazuje podgląd i ranking. Komenda `/bumpy` pokazuje ranking i kiedy następny bump.
+
 ### Tickety
 
 W zakładce **Tickety** włączasz tickety, wybierasz kategorię, kanał logów i role obsługi, a potem wysyłasz
@@ -98,8 +125,8 @@ i w DM do autora, a kanał znika.
 
 ### Intencje Discorda
 
-Powitania, autorole i log wejść potrzebują intencji **Server Members**, a zapis rozmów w ticketach — **Message
-Content**. Bot włącza je sam (wersje „limited” dla botów na mniej niż 100 serwerach) po zapisaniu ustawień; jeśli
+Powitania, autorole i log wejść/wyjść potrzebują intencji **Server Members**, a zapis rozmów w ticketach, logi
+wiadomości i rozpoznawanie udanego bumpa — **Message Content**. Bot włącza je sam (wersje „limited” dla botów na mniej niż 100 serwerach) po zapisaniu ustawień; jeśli
 się nie uda, panel pokaże, gdzie włączyć je ręcznie (Developer Portal → Bot → Privileged Gateway Intents).
 
 ### Uprawnienia — kto może użyć jakiej komendy
@@ -147,8 +174,18 @@ wpisujesz w przeglądarce.
 | `/nick uzytkownik [nowy_nick]` | Zmiana albo reset pseudonimu. |
 | `/rola dodaj/usun uzytkownik rola` | Nadanie/odebranie roli (z kontrolą hierarchii). |
 | `/ogloszenie tytul tresc [kolor] [kanal] [oznacz] [obrazek]` | Ogłoszenie w ładnym embedzie. |
-| `/clear ilosc [uzytkownik]` · `/slowmode sekundy [kanal]` | Czyszczenie wiadomości / tryb powolny. |
+| `/clear ilosc [uzytkownik] [filtr] [tekst]` · `/slowmode sekundy [kanal]` | Czyszczenie wiadomości (filtry: boty, ludzie, linki, załączniki, tekst) / tryb powolny. |
 | `/lock` · `/unlock` | Blokada i odblokowanie pisania na kanale. |
+| `/snipe [ktora]` | Ostatnio usunięta wiadomość z kanału (wymaga logów wiadomości). |
+| `/powiedz tresc [kanal] [odpowiedz_na]` | Wiadomość jako bot — także jako odpowiedź na czyjąś wiadomość (link albo ID). |
+| `/ankieta pytanie odpowiedzi [godziny] [wielokrotny] [kanal]` | Ankieta Discorda, odpowiedzi rozdzielone `;` (mogą mieć emoji). |
+| `/konkurs start/zakoncz/losuj/lista` | Konkursy z przyciskiem „Weź udział”, wymaganą rolą i losowaniem ponownym. |
+| `/emoji dodaj emoji [nazwa]` · `/emoji info emoji` | Dodanie emoji z innego serwera albo linku / duży podgląd. |
+| `/przypomnij dodaj/lista/usun` | Przypomnienia na kanale albo w DM. |
+| `/afk [powod]` | Status AFK — kto Cię oznaczy, dostanie odpowiedź; Twoja wiadomość zdejmuje status. |
+| `/propozycja tresc` | Propozycja na kanale propozycji z głosowaniem i wątkiem. |
+| `/profil` · `/rolainfo` · `/czlonkowie` | Profil użytkownika / informacje o roli / liczba członków i online. |
+| `/losuj kostka/moneta/liczba/wybor` · `/bumpy ranking/status` | Losowanie / ranking bumpów i kiedy następny. |
 | `/pomoc` | Lista komend. |
 
 **Jednostki czasu** wybierasz z listy: minuty, godziny, dni, tygodnie albo miesiące (30 dni). W wiadomości
@@ -210,8 +247,12 @@ supabase/
     lib/commands.js               definicje i obsługa komend slash
     lib/moderation.js             wspólny przebieg każdej kary, uprawnienia (hasModAccess/roleHasAccess)
     lib/views.js                  widoki ze stronami (◀ 1 2 3 ▶) i listami wyboru
-    lib/gateway.js                krótkie sesje gateway: status online, opisy, reakcje 🫓 na żywo
-    lib/cron.js                   rejestracja komend, wygasanie, reakcje 🫓 (zapas)
+    lib/gateway.js                krótkie sesje gateway: status online, opisy, reakcje 🫓 na żywo, zdarzenia
+    lib/cron.js                   rejestracja komend, wygasanie, reakcje 🫓 (zapas), bump, przypomnienia, konkursy
+    lib/logs.js                   logi serwera (wiadomości, członkowie, dziennik zdarzeń, kanały głosowe)
+    lib/bump.js                   przypominajka o bumpie DISBOARD
+    lib/community.js              AFK, przypomnienia, konkursy, propozycje
+    lib/communityCommands.js      komendy na co dzień (/ankieta, /konkurs, /snipe, /emoji, /losuj…)
     lib/panel.js                  API panelu
     lib/store.js                  zapytania SQL
     lib/configSchema.js           walidacja konfiguracji z panelu (w tym uprawnienia per komenda)

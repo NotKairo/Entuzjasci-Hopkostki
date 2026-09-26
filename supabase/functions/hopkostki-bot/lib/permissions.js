@@ -5,7 +5,9 @@ export const P = {
   BAN_MEMBERS: 1n << 2n,
   ADMINISTRATOR: 1n << 3n,
   MANAGE_CHANNELS: 1n << 4n,
+  MANAGE_GUILD: 1n << 5n,
   ADD_REACTIONS: 1n << 6n,
+  VIEW_AUDIT_LOG: 1n << 7n,
   VIEW_CHANNEL: 1n << 10n,
   SEND_MESSAGES: 1n << 11n,
   MANAGE_MESSAGES: 1n << 13n,
@@ -19,8 +21,11 @@ export const P = {
   MOVE_MEMBERS: 1n << 24n,
   MANAGE_NICKNAMES: 1n << 27n,
   MANAGE_ROLES: 1n << 28n,
+  MANAGE_GUILD_EXPRESSIONS: 1n << 30n,
+  CREATE_PUBLIC_THREADS: 1n << 35n,
   SEND_MESSAGES_IN_THREADS: 1n << 38n,
   MODERATE_MEMBERS: 1n << 40n,
+  SEND_POLLS: 1n << 49n,
 };
 
 // Na liście ról komendy: „wszyscy” (także osoby bez żadnej roli).
@@ -37,6 +42,17 @@ export const PERMISSION_LABELS = {
   [String(P.MANAGE_NICKNAMES)]: 'Zarządzanie pseudonimami',
   [String(P.CONNECT)]: 'Łączenie (kanały głosowe)',
   [String(P.MOVE_MEMBERS)]: 'Przenoszenie członków',
+  [String(P.MANAGE_GUILD)]: 'Zarządzanie serwerem',
+  [String(P.VIEW_AUDIT_LOG)]: 'Wyświetlanie dziennika zdarzeń',
+  [String(P.MANAGE_GUILD_EXPRESSIONS)]: 'Zarządzanie emoji i naklejkami',
+  [String(P.ADD_REACTIONS)]: 'Dodawanie reakcji',
+  [String(P.CREATE_PUBLIC_THREADS)]: 'Tworzenie wątków',
+  [String(P.SEND_POLLS)]: 'Tworzenie ankiet',
+  [String(P.SEND_MESSAGES)]: 'Wysyłanie wiadomości',
+  [String(P.VIEW_CHANNEL)]: 'Wyświetlanie kanałów',
+  [String(P.EMBED_LINKS)]: 'Osadzanie linków',
+  [String(P.ATTACH_FILES)]: 'Załączanie plików',
+  [String(P.READ_MESSAGE_HISTORY)]: 'Czytanie historii wiadomości',
 };
 
 export function permissionLabel(bits) {

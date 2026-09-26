@@ -23,7 +23,11 @@ test('definicje komend spełniają zasady API Discorda', () => {
   const defs = commandDefinitions();
   assert.deepEqual(
     defs.map((d) => d.name).sort(),
-    ['avatar', 'ban', 'clear', 'historia', 'info', 'kick', 'lock', 'nick', 'notatka', 'ogloszenie', 'pomoc', 'rola', 'serwer', 'slowmode', 'sprawa', 'sprawy', 'timeout', 'unban', 'unlock', 'untimeout', 'warn'],
+    [
+      'afk', 'ankieta', 'avatar', 'ban', 'bumpy', 'clear', 'czlonkowie', 'emoji', 'historia', 'info', 'kick', 'konkurs', 'lock', 'losuj',
+      'nick', 'notatka', 'ogloszenie', 'pomoc', 'powiedz', 'profil', 'propozycja', 'przypomnij', 'rola', 'rolainfo', 'serwer',
+      'slowmode', 'snipe', 'sprawa', 'sprawy', 'timeout', 'unban', 'unlock', 'untimeout', 'warn',
+    ],
   );
   for (const def of defs) {
     assert.match(def.name, NAME);
@@ -31,5 +35,5 @@ test('definicje komend spełniają zasady API Discorda', () => {
     assert.deepEqual(def.contexts, [0]);
     checkOptions(def.options, def.name);
   }
-  assert.ok(JSON.stringify(defs).length < 32_000);
+  assert.ok(JSON.stringify(defs).length < 64_000);
 });
