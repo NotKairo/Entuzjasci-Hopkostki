@@ -517,10 +517,16 @@ function renderChannelSelects() {
   $$('[data-channel-select]').forEach((select) => {
     const current = getPath(state.draft, select.dataset.path) ?? '';
     const kind = select.dataset.channelSelect;
-    const list = kind === 'category' ? state.guild.categories : state.guild.channels;
+    const list = kind === 'category' || kind === 'archiveCategory' ? state.guild.categories : state.guild.channels;
     const emptyLabel =
-      { none: '— wyłączone —', category: 'Bez kategorii', pick: '— wybierz kanał —', inherit: 'Jak kanał domyślny', bump: 'Kanał, na którym ktoś użył /bump' }[kind] ??
-      'Kanał, na którym użyto komendy';
+      {
+        none: '— wyłączone —',
+        category: 'Bez kategorii',
+        archiveCategory: 'Zostaje w tej samej kategorii',
+        pick: '— wybierz kanał —',
+        inherit: 'Jak kanał domyślny',
+        bump: 'Kanał, na którym ktoś użył /bump',
+      }[kind] ?? 'Kanał, na którym użyto komendy';
     let html = `<option value="">${emptyLabel}</option>`;
     html += list
       .map((c) => `<option value="${c.id}">${kind === 'category' ? '' : '#'}${esc(c.name)}${c.category ? ` · ${esc(c.category)}` : ''}</option>`)
@@ -1342,7 +1348,7 @@ async function loadTickets() {
 $('#tickets-refresh').addEventListener('click', loadTickets);
 $('#tickets-table').addEventListener('click', async (event) => {
   const id = event.target.closest('[data-ticket-close]')?.dataset.ticketClose;
-  if (!id || !confirm('Zamknąć ten ticket? Kanał zostanie usunięty, zapis trafi do logów.')) return;
+  if (!id || !confirm('Zamknąć ten ticket? Kanał trafi do archiwum i zniknie dla autora oraz każdego poza obsługą; zapis trafi do logów i chwilę później na ten kanał.')) return;
   try {
     await api(`/tickets/${id}/close`, { method: 'POST' });
     toast('Ticket zamknięty');
