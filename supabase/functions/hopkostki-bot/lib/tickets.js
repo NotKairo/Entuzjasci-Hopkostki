@@ -119,9 +119,11 @@ export async function createTicket(bot, { guildId, user, type, subject = '' }) {
   }
   ticket = await bot.store.updateTicket(ticket.id, { channelId: channel.id });
 
+  // Tylko oznaczenie autora — obsługa i tak widzi kanał (ma do niego dostęp od razu po utworzeniu),
+  // więc pingowanie całej roli przy każdym nowym tickecie byłoby tylko spamem powiadomień.
   await bot.discord.post(`/channels/${channel.id}/messages`, {
-    content: [`<@${user.id}>`, ...tickets.supportRoleIds.map((id) => `<@&${id}>`)].join(' '),
-    allowed_mentions: { users: [user.id], roles: tickets.supportRoleIds },
+    content: `<@${user.id}>`,
+    allowed_mentions: { users: [user.id] },
     embeds: [
       {
         color: colorInt(tickets.panel.color),
@@ -185,10 +187,6 @@ export function buildTranscript(ticket, messages, closer) {
   return [...header, ...lines].join('\n');
 }
 
-// Chwilę po zamknięciu (patrz postDueTicketTranscripts, wołane co 30 s przez crona) — żeby na kanale
-// najpierw było widać „Zamykam ticket…”, zanim pojawi się zapis rozmowy.
-const TRANSCRIPT_DELAY_SECONDS = 30;
-
 function closedSummary(ticket, closer, messageCount) {
   const number = ticketNumber(ticket.id);
   return {
@@ -223,19 +221,39 @@ export async function closeTicket(bot, ticket, closer) {
     }
   }
   await bot.store.updateTicket(ticket.id, { status: 'closed', closedBy: closer.id });
-  await bot.store.setTicketTranscript(ticket.id, transcript, messages.length);
-  await archiveTicketChannel(bot, ticket, tickets).catch((error) => console.warn(`[tickety] Archiwizacja #${number}: ${error.message}`));
+  const channel = await archiveTicketChannel(bot, ticket, tickets).catch((error) => {
+    console.warn(`[tickety] Archiwizacja #${number}: ${error.message}`);
+    return null;
+  });
+  // Zapis rozmowy i informacja o zamknięciu — od razu, na kanał, który już widzi tylko obsługa.
+  // Przycisk pozwala usunąć kanał z archiwum, gdy sprawa przestanie być potrzebna.
+  if (channel) {
+    await bot.discord
+      .post(
+        `/channels/${ticket.channelId}/messages`,
+        {
+          embeds: [summary],
+          allowed_mentions: { parse: [] },
+          components: [{ type: 1, components: [{ type: 2, style: 4, label: 'Usuń kanał z archiwum', custom_id: `tk|delete|${ticket.id}` }] }],
+        },
+        { files: [file] },
+      )
+      .catch((error) => {
+        if (!isGone(error)) console.warn(`[tickety] Zapis na kanał #${number}: ${error.message}`);
+      });
+  }
 }
 
 // Kanał NIE jest usuwany — zostaje jako archiwum. Przenosi się do kategorii zamkniętych ticketów (jeśli
 // ustawiona) i znika dla wszystkich poza obsługą (nawet dla autora) — usuwamy nadpisania uprawnień
 // każdego poza @everyone (już ma zakaz VIEW_CHANNEL z chwili utworzenia), botem i rolami obsługi.
+// Zwraca pobrany kanał (albo null, gdy ktoś go już ręcznie usunął).
 async function archiveTicketChannel(bot, ticket, tickets) {
   let channel;
   try {
     channel = await bot.discord.get(`/channels/${ticket.channelId}`);
   } catch (error) {
-    if (isGone(error)) return;
+    if (isGone(error)) return null;
     throw error;
   }
   const { botUser } = await getGuildContext(bot);
@@ -248,29 +266,7 @@ async function archiveTicketChannel(bot, ticket, tickets) {
   if (tickets.archiveCategoryId && tickets.archiveCategoryId !== channel.parent_id) {
     await bot.discord.patch(`/channels/${ticket.channelId}`, { parent_id: tickets.archiveCategoryId }, { reason: `Archiwizacja ticketu #${number}` });
   }
-}
-
-// Co 30 s (cron.js): zapis rozmowy i informacja o zamknięciu — dopiero teraz, chwilę po samym
-// zamknięciu, żeby na kanale było najpierw widać potwierdzenie, a zaraz potem pełny zapis.
-export async function postDueTicketTranscripts(bot) {
-  const due = await bot.store.dueTicketTranscripts(TRANSCRIPT_DELAY_SECONDS);
-  for (const ticket of due) {
-    const number = ticketNumber(ticket.id);
-    try {
-      const closer = ticket.closedBy ? { id: ticket.closedBy } : null;
-      const file = { name: `ticket-${number}.txt`, content: ticket.transcript };
-      await bot.discord.post(
-        `/channels/${ticket.channelId}/messages`,
-        { embeds: [closedSummary(ticket, closer, ticket.transcriptCount ?? 0)], allowed_mentions: { parse: [] } },
-        { files: [file] },
-      );
-    } catch (error) {
-      if (!isGone(error)) console.warn(`[tickety] Zapis ticketu #${number} na kanał: ${error.message}`);
-    } finally {
-      await bot.store.markTicketTranscriptPosted(ticket.id);
-    }
-  }
-  return due.length;
+  return channel;
 }
 
 // ---------- Przyciski, listy i okna ----------
@@ -332,7 +328,34 @@ export async function handleTicketInteraction(ix, bot) {
   }
 
   const ticket = await bot.store.getTicket(Number(arg));
-  if (!ticket || ticket.status !== 'open') return fail('Ten ticket jest już zamknięty.');
+  if (!ticket) return fail('Ten ticket już nie istnieje.');
+
+  // Przycisk pod zapisem rozmowy w archiwum — działa tylko na już zamkniętym tickecie, więc sprawdzany
+  // jest przed ogólnym „musi być otwarty” niżej.
+  if (kind === 'tk' && (action === 'delete' || action === 'deleteconfirm')) {
+    if (ticket.status !== 'closed') return fail('Ten ticket nie jest jeszcze zamknięty.');
+    if (!isSupport(ix.member, tickets)) return fail('Usunąć kanał z archiwum może tylko obsługa.');
+    if (action === 'delete') {
+      return {
+        response: {
+          type: 4,
+          data: {
+            flags: EPHEMERAL,
+            content: 'Na pewno usunąć ten kanał z archiwum? Tej operacji nie można cofnąć.',
+            components: [{ type: 1, components: [{ type: 2, style: 4, label: 'Tak, usuń', custom_id: `tk|deleteconfirm|${ticket.id}` }] }],
+          },
+        },
+      };
+    }
+    return work(6, async () => {
+      await bot.discord.delete(`/channels/${ticket.channelId}`, { reason: `Usunięcie archiwum ticketu #${ticketNumber(ticket.id)}` }).catch((error) => {
+        if (!isGone(error)) throw error;
+      });
+      return 'Kanał usunięty z archiwum.';
+    });
+  }
+
+  if (ticket.status !== 'open') return fail('Ten ticket jest już zamknięty.');
   const support = isSupport(ix.member, tickets);
   const owner = ix.user.id === ticket.userId;
 
@@ -360,7 +383,7 @@ export async function handleTicketInteraction(ix, bot) {
           type: 4,
           data: {
             flags: EPHEMERAL,
-            content: 'Na pewno zamknąć ticket? Kanał trafi do archiwum i zniknie dla autora oraz każdego poza obsługą; zapis rozmowy trafi do logów i chwilę później na ten kanał.',
+            content: 'Na pewno zamknąć ticket? Kanał trafi do archiwum i zniknie dla autora oraz każdego poza obsługą; zapis rozmowy trafi do logów, w DM do autora i na ten kanał.',
             components: [{ type: 1, components: [{ type: 2, style: 4, label: 'Tak, zamknij', custom_id: `tk|confirm|${ticket.id}` }] }],
           },
         },

@@ -5,7 +5,6 @@ import { fakeDiscord, makeBot, GUILD } from './support/discord.js';
 import { handleInteraction } from '../supabase/functions/hopkostki-bot/lib/interactions.js';
 import { createHandler } from '../supabase/functions/hopkostki-bot/lib/app.js';
 import { P } from '../supabase/functions/hopkostki-bot/lib/permissions.js';
-import { postDueTicketTranscripts } from '../supabase/functions/hopkostki-bot/lib/tickets.js';
 
 const SUPPORT = '100000000000000080';
 const CATEGORY = '100000000000000081';
@@ -76,7 +75,7 @@ test('otwarcie ticketu: okienko z pytaniem, prywatny kanał, powitanie z przycis
   assert.equal(BigInt(byId[SUPPORT].allow) & P.VIEW_CHANNEL, P.VIEW_CHANNEL);
 
   const welcome = s.discord.state.channels.get(channel.id)[0];
-  assert.match(welcome.content, new RegExp(`<@target> <@&${SUPPORT}>`));
+  assert.equal(welcome.content, '<@target>', 'bez pingowania obsługi — i tak widzi kanał');
   assert.equal(welcome.embeds[0].fields[0].value, 'Nie działa mi rola');
   assert.deepEqual(welcome.components[0].components.map((b) => b.label), ['Zamknij', 'Przejmij', 'Dodaj osobę']);
   assert.match(s.discord.state.webhook.at(-1).body.embeds[0].description, new RegExp(`<#${channel.id}>`));
@@ -124,20 +123,25 @@ test('ticket: przejęcie tylko przez obsługę, dodanie osoby, zamknięcie z zap
   assert.equal(logCall.files[0].name, 'ticket-0001.txt');
   assert.match(logCall.files[0].content, /target: Pomocy!/);
   assert.equal(s.discord.state.dms.at(-1).embeds[0].title, 'Twój ticket #0001 został zamknięty');
-  // Zapis rozmowy na sam kanał trafia dopiero chwilę później (przez crona), nie od razu przy zamknięciu.
-  assert.equal(s.discord.state.channels.get(channel.id).findLast((m) => m.embeds?.[0]?.title?.includes('zamknięty')), undefined);
+  // Zapis rozmowy trafia na sam kanał od razu przy zamknięciu, z przyciskiem do usunięcia go z archiwum.
+  const posted = s.discord.state.channels.get(channel.id).at(-1);
+  assert.equal(posted.embeds[0].title, 'Ticket #0001 zamknięty');
+  assert.equal(posted.embeds[0].fields.find((f) => f.name === 'Wiadomości').value, '4');
+  assert.deepEqual(posted.components[0].components.map((b) => [b.label, b.custom_id]), [['Usuń kanał z archiwum', `tk|delete|${ticket.id}`]]);
+  const postedCall = s.discord.state.calls.findLast((c) => c.method === 'POST' && c.path === `/channels/${channel.id}/messages`);
+  assert.equal(postedCall.files[0].name, 'ticket-0001.txt');
+  assert.match(postedCall.files[0].content, /target: Pomocy!/);
 
   const again = await run(s.bot, click(`tk|close|${ticket.id}`));
   assert.match(again.response.data.embeds[0].description, /już zamknięty/);
 });
 
-test('zamknięty ticket: przeniesienie do archiwum, zapis rozmowy i informacja o zamknięciu na kanał chwilę po zamknięciu', async () => {
+test('zamknięty ticket: przeniesienie do archiwum i przycisk „Usuń kanał z archiwum” (tylko obsługa, z potwierdzeniem)', async () => {
   const ARCHIVE = '100000000000000084';
   const s = await setup({ types: [{ label: 'Pomoc', style: 'niebieski', question: '' }], archiveCategoryId: ARCHIVE });
   await run(s.bot, click('tk|open|0'));
   const channel = s.discord.state.createdChannels[0];
   const ticket = (await s.store.listTickets())[0];
-  s.discord.state.channels.get(channel.id).push({ id: '1300000000000000001', content: 'Dzięki za pomoc!', author: { username: 'target' }, timestamp: new Date().toISOString() });
 
   await run(s.bot, click(`tk|close|${ticket.id}`));
   await run(s.bot, click(`tk|confirm|${ticket.id}`));
@@ -145,18 +149,17 @@ test('zamknięty ticket: przeniesienie do archiwum, zapis rozmowy i informacja o
   const liveChannel = await s.bot.discord.get(`/channels/${channel.id}`);
   assert.equal(liveChannel.parent_id, ARCHIVE, 'kanał przenosi się do kategorii archiwum');
 
-  assert.equal(await postDueTicketTranscripts(s.bot), 0, 'za wcześnie — jeszcze nie minęło 30 s');
-  assert.equal(s.discord.state.channels.get(channel.id).length, 2, 'jeszcze bez zapisu rozmowy (powitanie + wiadomość autora)');
+  const deniedOwner = await run(s.bot, click(`tk|delete|${ticket.id}`, { user: 'target' }));
+  assert.match(deniedOwner.response.data.embeds[0].description, /tylko obsługa/);
+  assert.deepEqual(s.discord.state.deletedChannels, []);
 
-  await s.store.query("update bot.tickets set closed_at = now() - interval '1 minute' where id = $1::int", [ticket.id]);
-  assert.equal(await postDueTicketTranscripts(s.bot), 1);
-  const postedCall = s.discord.state.calls.findLast((c) => c.method === 'POST' && c.path === `/channels/${channel.id}/messages`);
-  assert.equal(postedCall.body.embeds[0].title, 'Ticket #0001 zamknięty');
-  assert.equal(postedCall.body.embeds[0].fields.find((f) => f.name === 'Wiadomości').value, '2', 'powitanie + wiadomość autora');
-  assert.equal(postedCall.files[0].name, 'ticket-0001.txt');
-  assert.match(postedCall.files[0].content, /target: Dzięki za pomoc!/);
+  const prompt = await run(s.bot, click(`tk|delete|${ticket.id}`, { user: 'mod', roles: [SUPPORT] }));
+  assert.match(prompt.response.data.content, /Na pewno usunąć/);
+  assert.equal(prompt.response.data.components[0].components[0].custom_id, `tk|deleteconfirm|${ticket.id}`);
+  assert.deepEqual(s.discord.state.deletedChannels, [], 'samo kliknięcie jeszcze nic nie usuwa');
 
-  assert.equal(await postDueTicketTranscripts(s.bot), 0, 'wysyłane tylko raz');
+  await run(s.bot, click(`tk|deleteconfirm|${ticket.id}`, { user: 'mod', roles: [SUPPORT] }));
+  assert.deepEqual(s.discord.state.deletedChannels, [channel.id]);
 });
 
 test('ticket, którego kanał usunięto ręcznie, nie blokuje nowego; wyłączone tickety nic nie tworzą', async () => {

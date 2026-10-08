@@ -101,9 +101,6 @@ function mapTicket(r) {
     closedBy: r.closed_by,
     createdAt: ms(r.created_at),
     closedAt: ms(r.closed_at),
-    transcript: r.transcript,
-    transcriptCount: r.transcript_count,
-    transcriptPostedAt: ms(r.transcript_posted_at),
   };
 }
 
@@ -547,27 +544,6 @@ export function createStore(query, { configTtlMs = 10_000 } = {}) {
 
     async deleteTicket(id) {
       await query('delete from bot.tickets where id = $1::int', [id]);
-    },
-
-    // Zapis rozmowy czeka na wysłanie na kanał ticketu chwilę po zamknięciu (patrz cron.js) — to też
-    // odróżnia ticket „świeżo zamknięty, jeszcze nic nie wysłaliśmy” od „zamknięty dawno temu”.
-    async setTicketTranscript(id, transcript, count) {
-      await query('update bot.tickets set transcript = $2::text, transcript_count = $3::int where id = $1::int', [id, transcript, count]);
-    },
-
-    async dueTicketTranscripts(delaySeconds = 30, limit = 20) {
-      const rows = await query(
-        `select * from bot.tickets
-         where status = 'closed' and transcript is not null and transcript_posted_at is null
-           and closed_at <= now() - make_interval(secs => $1::int)
-         order by closed_at limit $2::int`,
-        [delaySeconds, limit],
-      );
-      return rows.map(mapTicket);
-    },
-
-    async markTicketTranscriptPosted(id) {
-      await query('update bot.tickets set transcript_posted_at = now() where id = $1::int', [id]);
     },
 
     // ---------- Wiadomości wysłane z panelu ----------

@@ -126,16 +126,19 @@ a zakładka pokazuje podgląd i ranking. Komenda `/bumpy` pokazuje ranking i kie
 
 W zakładce **Tickety** włączasz tickety, wybierasz kategorię, kanał logów i role obsługi, a potem wysyłasz
 **panel ticketów** (wiadomość z przyciskami — każdy przycisk to rodzaj ticketu, opcjonalnie z pytaniem w
-okienku). Kliknięcie tworzy prywatny kanał widoczny tylko dla tej osoby i obsługi, z przyciskami **Zamknij**
-(z potwierdzeniem), **Przejmij** i **Dodaj osobę**.
+okienku). Kliknięcie tworzy prywatny kanał widoczny tylko dla tej osoby i obsługi (oznaczona w powitaniu
+jest tylko ta osoba — obsługa i tak ma dostęp do kanału, więc pingowanie całej roli przy każdym nowym
+tickecie byłoby tylko spamem powiadomień), z przyciskami **Zamknij** (z potwierdzeniem), **Przejmij** i
+**Dodaj osobę**.
 
 Zamknięty ticket **nie jest usuwany** — zostaje jako archiwum:
 - kanał przenosi się do **kategorii dla zamkniętych ticketów** (osobne pole w ustawieniach, puste = zostaje
   w tej samej kategorii);
 - znika dla wszystkich poza obsługą — **także dla autora** i każdego, kogo dodano do ticketu — zapis
   rozmowy widzi więc tylko obsługa;
-- zapis rozmowy (.txt) i podsumowanie zamknięcia trafiają od razu do logów ticketów i w DM do autora, a
-  **chwilę później** (do 30 s, przez crona) — także na sam kanał, żeby zostały tam na stałe razem z nim.
+- zapis rozmowy (.txt) i podsumowanie zamknięcia trafiają **od razu** do logów ticketów, w DM do autora i
+  na sam kanał archiwum, razem z przyciskiem **„Usuń kanał z archiwum”** (z potwierdzeniem, tylko dla
+  obsługi) — do ręcznego sprzątania spraw, które nie są już potrzebne.
 
 ### Intencje Discorda
 
