@@ -32,7 +32,6 @@ const int = (name, description, extra = {}) => ({ type: T.INTEGER, name, descrip
 const sub = (name, description, options = []) => ({ type: T.SUB, name, description, options });
 const channelOpt = (description, types) => ({ type: T.CHANNEL, name: 'kanal', description, channel_types: types });
 const reasonOpt = (description, required = true) => str('powod', description, { required, max_length: 500 });
-const perm = (bits) => String(bits);
 
 export class ReplyError extends ActionError {}
 
@@ -61,7 +60,6 @@ const ban = {
   data: {
     name: 'ban',
     description: '⛔ Zbanuj użytkownika na określony czas albo na zawsze',
-    default_member_permissions: perm(P.BAN_MEMBERS),
     ...GUILD_ONLY,
     options: [
       user('uzytkownik', '👤 Kogo zbanować (działa też na osoby spoza serwera — wklej ID)', true),
@@ -99,7 +97,6 @@ const unban = {
   data: {
     name: 'unban',
     description: '✅ Zdejmij bana — podaj osobę albo zostaw puste, żeby zobaczyć listę zbanowanych',
-    default_member_permissions: perm(P.BAN_MEMBERS),
     ...GUILD_ONLY,
     options: [
       str('uzytkownik', '👤 Zbanowana osoba (zacznij pisać nick lub ID) — puste = lista wszystkich banów', { autocomplete: true }),
@@ -137,7 +134,6 @@ const kick = {
   data: {
     name: 'kick',
     description: '👢 Wyrzuć użytkownika z serwera (może wrócić z nowym zaproszeniem)',
-    default_member_permissions: perm(P.KICK_MEMBERS),
     ...GUILD_ONLY,
     options: [user('uzytkownik', '👤 Kogo wyrzucić', true), reasonOpt('📝 Za co? Powód zobaczy wyrzucony i moderacja')],
   },
@@ -153,7 +149,6 @@ const timeout = {
   data: {
     name: 'timeout',
     description: '🔇 Wycisz użytkownika na określony czas (maksymalnie 28 dni)',
-    default_member_permissions: perm(P.MODERATE_MEMBERS),
     ...GUILD_ONLY,
     options: [
       user('uzytkownik', '👤 Kogo wyciszyć', true),
@@ -178,7 +173,6 @@ const untimeout = {
   data: {
     name: 'untimeout',
     description: '🔊 Zdejmij wyciszenie (timeout) przed czasem',
-    default_member_permissions: perm(P.MODERATE_MEMBERS),
     ...GUILD_ONLY,
     options: [user('uzytkownik', '👤 Komu zdjąć timeout', true), reasonOpt('📝 Dlaczego zdejmujesz timeout (opcjonalnie)', false)],
   },
@@ -198,7 +192,6 @@ const warn = {
   data: {
     name: 'warn',
     description: '⚠️ System ostrzeżeń z punktami (znikają same po 60 dniach)',
-    default_member_permissions: perm(P.MODERATE_MEMBERS),
     ...GUILD_ONLY,
     options: [
       sub('dodaj', '⚠️ Daj ostrzeżenie — ukarany dostanie wiadomość, punkty widzi tylko moderacja', [
@@ -276,7 +269,6 @@ const historia = {
   data: {
     name: 'historia',
     description: '📜 Wszystkie kary danej osoby — bany, kicki, timeouty, ostrzeżenia (strony ◀ 1 2 3 ▶)',
-    default_member_permissions: perm(P.MODERATE_MEMBERS),
     ...GUILD_ONLY,
     options: [user('uzytkownik', '👤 Czyją historię pokazać', true)],
   },
@@ -298,7 +290,6 @@ const sprawy = {
   data: {
     name: 'sprawy',
     description: '🗂️ Ostatnie akcje moderacji na całym serwerze (strony ◀ 1 2 3 ▶)',
-    default_member_permissions: perm(P.MODERATE_MEMBERS),
     ...GUILD_ONLY,
     options: [str('typ', '🔎 Pokaż tylko jeden rodzaj kar (opcjonalnie)', { choices: CASE_TYPE_CHOICES })],
   },
@@ -331,7 +322,6 @@ const sprawa = {
   data: {
     name: 'sprawa',
     description: '🗂️ Podgląd i edycja pojedynczej sprawy moderacyjnej',
-    default_member_permissions: perm(P.MODERATE_MEMBERS),
     ...GUILD_ONLY,
     options: [
       sub('pokaz', '🔎 Pokaż szczegóły sprawy', [int('numer', '#️⃣ Numer sprawy (widać go w stopce embeda)', { required: true, min_value: 1 })]),
@@ -369,7 +359,6 @@ const notatka = {
   data: {
     name: 'notatka',
     description: '📌 Prywatne notatki moderacji o użytkownikach (np. „podejrzany o multikonto”)',
-    default_member_permissions: perm(P.MODERATE_MEMBERS),
     ...GUILD_ONLY,
     options: [
       sub('dodaj', '📌 Dodaj notatkę — widzi ją tylko moderacja', [
@@ -403,7 +392,6 @@ const info = {
   data: {
     name: 'info',
     description: '📇 Karta użytkownika: konto, role, kary, ostrzeżenia i notatki (tylko dla moderacji)',
-    default_member_permissions: perm(P.MODERATE_MEMBERS),
     ...GUILD_ONLY,
     options: [user('uzytkownik', '👤 O kim pokazać informacje', true)],
   },
@@ -532,7 +520,6 @@ const nick = {
   data: {
     name: 'nick',
     description: '✏️ Zmień albo zresetuj pseudonim użytkownika na serwerze',
-    default_member_permissions: perm(P.MANAGE_NICKNAMES),
     ...GUILD_ONLY,
     options: [
       user('uzytkownik', '👤 Komu zmienić pseudonim', true),
@@ -558,7 +545,6 @@ const rola = {
   data: {
     name: 'rola',
     description: '🎭 Nadaj albo odbierz rolę użytkownikowi',
-    default_member_permissions: perm(P.MANAGE_ROLES),
     ...GUILD_ONLY,
     options: [
       sub('dodaj', '➕ Nadaj rolę', [
@@ -624,7 +610,6 @@ const ogloszenie = {
   data: {
     name: 'ogloszenie',
     description: '📢 Wyślij ładne ogłoszenie w embedzie (nowa linia: wpisz \\n)',
-    default_member_permissions: perm(P.MANAGE_MESSAGES),
     ...GUILD_ONLY,
     options: [
       str('tytul', '🏷️ Tytuł ogłoszenia', { required: true, max_length: 200 }),
@@ -700,7 +685,6 @@ const clear = {
   data: {
     name: 'clear',
     description: '🧹 Usuń ostatnie wiadomości na tym kanale (maks. 100, nie starsze niż 14 dni)',
-    default_member_permissions: perm(P.MANAGE_MESSAGES),
     ...GUILD_ONLY,
     options: [
       int('ilosc', '🔢 Ile ostatnich wiadomości sprawdzić (1–100)', { required: true, min_value: 1, max_value: 100 }),
@@ -751,7 +735,6 @@ const slowmode = {
   data: {
     name: 'slowmode',
     description: '🐢 Ustaw tryb powolny — co ile sekund można pisać',
-    default_member_permissions: perm(P.MANAGE_CHANNELS),
     ...GUILD_ONLY,
     options: [
       int('sekundy', '⏱️ Odstęp między wiadomościami w sekundach (0 = wyłącz, maks. 21600 = 6 h)', { required: true, min_value: 0, max_value: 21600 }),
@@ -776,7 +759,6 @@ function lockCommand(name, description, locked) {
     data: {
       name,
       description,
-      default_member_permissions: perm(P.MANAGE_CHANNELS),
       ...GUILD_ONLY,
       options: [
         channelOpt(locked ? '🔒 Który kanał zablokować (domyślnie ten)' : '🔓 Który kanał odblokować (domyślnie ten)', [CH.TEXT, CH.ANNOUNCEMENT]),

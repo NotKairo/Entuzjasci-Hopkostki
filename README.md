@@ -127,8 +127,15 @@ a zakładka pokazuje podgląd i ranking. Komenda `/bumpy` pokazuje ranking i kie
 W zakładce **Tickety** włączasz tickety, wybierasz kategorię, kanał logów i role obsługi, a potem wysyłasz
 **panel ticketów** (wiadomość z przyciskami — każdy przycisk to rodzaj ticketu, opcjonalnie z pytaniem w
 okienku). Kliknięcie tworzy prywatny kanał widoczny tylko dla tej osoby i obsługi, z przyciskami **Zamknij**
-(z potwierdzeniem), **Przejmij** i **Dodaj osobę**. Po zamknięciu zapis rozmowy (.txt) trafia do logów ticketów
-i w DM do autora, a kanał znika.
+(z potwierdzeniem), **Przejmij** i **Dodaj osobę**.
+
+Zamknięty ticket **nie jest usuwany** — zostaje jako archiwum:
+- kanał przenosi się do **kategorii dla zamkniętych ticketów** (osobne pole w ustawieniach, puste = zostaje
+  w tej samej kategorii);
+- znika dla wszystkich poza obsługą — **także dla autora** i każdego, kogo dodano do ticketu — zapis
+  rozmowy widzi więc tylko obsługa;
+- zapis rozmowy (.txt) i podsumowanie zamknięcia trafiają od razu do logów ticketów i w DM do autora, a
+  **chwilę później** (do 30 s, przez crona) — także na sam kanał, żeby zostały tam na stałe razem z nim.
 
 ### Intencje Discorda
 
@@ -144,8 +151,13 @@ ustawione według tego, kto miał dostęp wcześniej (uprawnienia Discorda + rol
 dostają listę automatycznie. Administratorzy mogą zawsze wszystko, pusta lista = tylko administratorzy,
 „Wszyscy (@everyone)” = każdy. Tabela na dole pokazuje na żywo, która rola może użyć której komendy.
 
-Rola bez uprawnienia Discorda do danej komendy nie zobaczy jej na liście komend w Discordzie, dopóki nie
-zezwolisz jej w *Ustawienia serwera → Integracje → bot*.
+Komendy nie mają własnego wymogu uprawnień Discorda (`default_member_permissions`) — gdyby go ustawić,
+Discord ukrywałby komendę przed rolami dodanymi tylko przez panel (np. Helperem bez prawdziwego
+uprawnienia „Wyciszanie członków”), mimo że miałyby do niej dostęp. Dlatego każda komenda jest widoczna
+dla wszystkich w liście komend, a o tym, kto faktycznie może jej użyć, decyduje wyłącznie lista ról z tej
+zakładki (osoba bez dostępu i tak dostanie „Nie masz uprawnień do tej komendy” po próbie użycia). Jeśli
+zależy Ci na ukryciu komendy przed kimś na poziomie samego Discorda, możesz dodatkowo ograniczyć ją w
+*Ustawienia serwera → Integracje → bot*.
 
 ### Uruchomienie panelu lokalnie (opcjonalnie)
 

@@ -403,7 +403,7 @@
       <section id="view-tickety" class="view">
         <header class="view-head">
           <h2>Tickety</h2>
-          <p class="muted">Osoba klika przycisk w panelu ticketów, a bot tworzy prywatny kanał widoczny tylko dla niej i obsługi. W tickecie są przyciski Zamknij, Przejmij i Dodaj osobę. Po zamknięciu zapis rozmowy trafia do logów ticketów (i w DM do autora).</p>
+          <p class="muted">Osoba klika przycisk w panelu ticketów, a bot tworzy prywatny kanał widoczny tylko dla niej i obsługi. W tickecie są przyciski Zamknij, Przejmij i Dodaj osobę. Po zamknięciu kanał NIE jest usuwany — trafia do archiwum i znika dla wszystkich poza obsługą (nawet dla autora), a zapis rozmowy trafia do logów, w DM do autora i chwilę później na sam kanał.</p>
         </header>
         <div id="tickets-warning" class="banner warn hidden"></div>
         <div class="grid two">
@@ -411,6 +411,7 @@
             <h3>Ustawienia</h3>
             <label class="toggle"><input type="checkbox" data-path="tickets.enabled"><span></span>Włącz tickety</label>
             <label class="field"><span>Kategoria dla ticketów</span><select data-path="tickets.categoryId" data-channel-select="category"></select></label>
+            <label class="field"><span>Kategoria dla zamkniętych ticketów (archiwum)</span><select data-path="tickets.archiveCategoryId" data-channel-select="archiveCategory"></select></label>
             <label class="field"><span>Kanał logów ticketów (zapisy rozmów)</span><select data-path="tickets.logChannelId" data-channel-select="none"></select></label>
             <div class="field"><span>Obsługa (widzi wszystkie tickety)</span><div data-picker-slot="cfg:tickets.supportRoleIds"></div></div>
             <div class="grid two tight">

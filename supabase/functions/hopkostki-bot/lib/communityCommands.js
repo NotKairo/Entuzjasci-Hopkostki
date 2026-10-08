@@ -12,7 +12,6 @@ import { setAfk, startGiveaway, endGiveaway, postSuggestion } from './community.
 const T = { SUB: 1, STRING: 3, INTEGER: 4, BOOLEAN: 5, USER: 6, CHANNEL: 7, ROLE: 8 };
 const CH = { TEXT: 0, ANNOUNCEMENT: 5 };
 const GUILD_ONLY = { contexts: [0] };
-const perm = (bits) => String(bits);
 const user = (name, description, required = false) => ({ type: T.USER, name, description, required });
 const str = (name, description, extra = {}) => ({ type: T.STRING, name, description, ...extra });
 const int = (name, description, extra = {}) => ({ type: T.INTEGER, name, description, ...extra });
@@ -60,7 +59,6 @@ const ankieta = {
   data: {
     name: 'ankieta',
     description: '📊 Utwórz ankietę Discorda (odpowiedzi rozdziel średnikiem ;)',
-    default_member_permissions: perm(P.MANAGE_MESSAGES),
     ...GUILD_ONLY,
     options: [
       str('pytanie', '❓ O co pytasz?', { required: true, max_length: 300 }),
@@ -136,7 +134,6 @@ const konkurs = {
   data: {
     name: 'konkurs',
     description: '🎉 Konkursy (giveaway) z przyciskiem „Weź udział” i losowaniem zwycięzców',
-    default_member_permissions: perm(P.MANAGE_GUILD),
     ...GUILD_ONLY,
     options: [
       sub('start', '🎉 Rozpocznij konkurs', [
@@ -187,7 +184,6 @@ const snipe = {
   data: {
     name: 'snipe',
     description: '🕵️ Pokaż ostatnio usuniętą wiadomość z tego kanału (wymaga logów wiadomości)',
-    default_member_permissions: perm(P.MANAGE_MESSAGES),
     ...GUILD_ONLY,
     options: [int('ktora', '#️⃣ Która od końca (1 = ostatnia, maks. 10)', { min_value: 1, max_value: 10 })],
   },
@@ -320,7 +316,6 @@ const emoji = {
   data: {
     name: 'emoji',
     description: '😀 Dodaj emoji z innego serwera lub z linku (steal) albo pokaż je w dużym rozmiarze',
-    default_member_permissions: perm(P.MANAGE_GUILD_EXPRESSIONS),
     ...GUILD_ONLY,
     options: [
       sub('dodaj', '➕ Dodaj emoji na serwer', [
@@ -368,7 +363,6 @@ const powiedz = {
   data: {
     name: 'powiedz',
     description: '💬 Napisz wiadomość jako bot (także jako odpowiedź na czyjąś wiadomość)',
-    default_member_permissions: perm(P.MANAGE_MESSAGES),
     ...GUILD_ONLY,
     options: [
       str('tresc', '📝 Treść — nową linię zrobisz wpisując \\n', { required: true, max_length: 2000 }),

@@ -61,6 +61,14 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
     if (!state.channels.has(id)) state.channels.set(id, []);
     return state.channels.get(id);
   };
+  // Pełny, na żywo aktualizowany stan kanału (kategoria + wszystkie nadpisania uprawnień) — osobno od
+  // `state.overwrites`, który pamięta tylko ostatnie nadpisanie i zostaje jako uproszczenie dla
+  // kanałów spoza createdChannels (np. „chan”), używane przez /lock i prywatność kanałów głosowych.
+  const channelState = new Map(); // id -> { parent_id, permission_overwrites: [...] }
+  const ensureChannelState = (id, seed = {}) => {
+    if (!channelState.has(id)) channelState.set(id, { parent_id: seed.parent_id ?? null, permission_overwrites: [...(seed.permission_overwrites ?? [])] });
+    return channelState.get(id);
+  };
   const postMessage = (channelId, body) => {
     const message = { id: snowflake(), channel_id: channelId, author: users.get('bot'), ...body };
     channelMessages(channelId).push(message);
@@ -136,6 +144,7 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
     ['POST', /^\/guilds\/g1\/channels$/, (m, body) => {
       const channel = { id: snowflake(), guild_id: GUILD, permission_overwrites: [], ...body };
       state.createdChannels.push(channel);
+      ensureChannelState(channel.id, channel);
       return channel;
     }],
     ['GET', /^\/users\/(\w+)$/, ([, id]) => users.get(id) ?? notFound(10013)],
@@ -174,13 +183,25 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
       if (message) message.reactions = [{ me: true, emoji: { name: decodeURIComponent(emoji), id: null } }];
       return null;
     }],
-    ['GET', /^\/channels\/([\w-]+)$/, ([, id]) => (state.deletedChannels.includes(id) ? notFound(10003) : { id, permission_overwrites: state.overwrites.has(id) ? [state.overwrites.get(id)] : [] })],
+    ['GET', /^\/channels\/([\w-]+)$/, ([, id]) => {
+      if (state.deletedChannels.includes(id)) return notFound(10003);
+      const cs = channelState.get(id);
+      if (cs) return { id, guild_id: GUILD, parent_id: cs.parent_id, permission_overwrites: cs.permission_overwrites };
+      return { id, permission_overwrites: state.overwrites.has(id) ? [state.overwrites.get(id)] : [] };
+    }],
     ['PUT', /^\/channels\/([\w-]+)\/permissions\/(\w+)$/, ([, id, target], body) => {
       state.overwrites.set(id, { id: target, ...body });
+      const cs = ensureChannelState(id);
+      const entry = { id: target, ...body };
+      const i = cs.permission_overwrites.findIndex((o) => o.id === target);
+      if (i === -1) cs.permission_overwrites.push(entry);
+      else cs.permission_overwrites[i] = entry;
       return null;
     }],
     ['DELETE', /^\/channels\/([\w-]+)\/permissions\/(\w+)$/, ([, id, target]) => {
       state.removedOverwrites.push({ id, target });
+      const cs = channelState.get(id);
+      if (cs) cs.permission_overwrites = cs.permission_overwrites.filter((o) => o.id !== target);
       return null;
     }],
     ['PATCH', /^\/channels\/([\w-]+)\/messages\/(\d+)$/, ([, channel, id], body) => {
@@ -189,6 +210,8 @@ export function fakeDiscord({ dmFails = false, banError = null, endpoint = null 
     }],
     ['PATCH', /^\/channels\/([\w-]+)$/, ([, id], body) => {
       state.channelEdits.push({ id, body });
+      const cs = channelState.get(id);
+      if (cs && 'parent_id' in body) cs.parent_id = body.parent_id;
       return { id, ...body };
     }],
     ['DELETE', /^\/channels\/([\w-]+)$/, ([, id]) => {

@@ -12,6 +12,7 @@ const TICKETS = new URL('../../supabase/migrations/20260926200000_bot_tickets.sq
 const COMMUNITY = new URL('../../supabase/migrations/20260927100000_bot_logs_community.sql', import.meta.url);
 const PROFILES = new URL('../../supabase/migrations/20260927140000_bot_member_profiles.sql', import.meta.url);
 const INVITES = new URL('../../supabase/migrations/20260927160000_bot_invite_joins.sql', import.meta.url);
+const TICKET_ARCHIVE = new URL('../../supabase/migrations/20260927180000_bot_ticket_archive.sql', import.meta.url);
 const withoutCron = (sql) => sql.split(/^select cron\.schedule/m)[0];
 const withoutGrants = (sql) => sql.replace(/revoke .*? from anon, authenticated;/g, '');
 let shared = null;
@@ -27,6 +28,7 @@ async function database() {
       await db.exec(withoutGrants(fs.readFileSync(COMMUNITY, 'utf8')));
       await db.exec(withoutGrants(fs.readFileSync(PROFILES, 'utf8')));
       await db.exec(withoutGrants(fs.readFileSync(INVITES, 'utf8')));
+      await db.exec(withoutGrants(fs.readFileSync(TICKET_ARCHIVE, 'utf8')));
       return db;
     })();
   }

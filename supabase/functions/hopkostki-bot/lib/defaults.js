@@ -76,6 +76,9 @@ export const DEFAULT_CONFIG = {
   tickets: {
     enabled: false,
     categoryId: '',
+    // Dokąd trafia kanał po zamknięciu ticketu (puste = zostaje w tej samej kategorii). Kanał nie jest
+    // usuwany — znika tylko z widoku osoby, która go otworzyła, i każdego poza obsługą.
+    archiveCategoryId: '',
     supportRoleIds: [],
     logChannelId: '',
     maxOpen: 1,

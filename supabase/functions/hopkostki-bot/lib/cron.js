@@ -2,7 +2,8 @@
 // - konfiguracja aplikacji (rejestracja komend, adres Interactions Endpoint),
 // - zdejmowanie wygasłych tymczasowych banów i usuwanie wygasłych ostrzeżeń,
 // - reakcje 🫓 pod odpowiedziami na wiadomości o karach (zapas, gdyby sesja gateway coś przegapiła),
-// - przypominajka o bumpie, przypomnienia (/przypomnij), koniec konkursów, czyszczenie pamięci wiadomości.
+// - przypominajka o bumpie, przypomnienia (/przypomnij), koniec konkursów, czyszczenie pamięci wiadomości,
+// - zapis rozmowy na kanał zamkniętego ticketu — chwilę (30 s) po jego zamknięciu, nie od razu.
 
 import { commandDefinitions, fillCommandPermissions } from './commands.js';
 import { getApp, resolveGuildId, expireTempBan, logExpiredWarns } from './moderation.js';
@@ -14,6 +15,7 @@ import { bumpReminderTick, bumpScan } from './bump.js';
 import { seedMemberProfiles } from './logs.js';
 import { ensureInviteSnapshot } from './invites.js';
 import { sendDueReminders, finishDueGiveaways } from './community.js';
+import { postDueTicketTranscripts } from './tickets.js';
 
 const SETUP_EVERY_MS = 10 * 60_000;
 const PAGES_PER_CHANNEL = 5;
@@ -150,6 +152,7 @@ export async function runCron(bot, { force = false } = {}) {
     report.profiles = await step('profiles', () => seedMemberProfiles(bot));
     report.invites = await step('invites', async () => ensureInviteSnapshot(bot, await bot.store.getConfig()));
     report.giveaways = await step('giveaways', () => finishDueGiveaways(bot));
+    report.ticketTranscripts = await step('ticketTranscripts', () => postDueTicketTranscripts(bot));
     await step('prune', async () => {
       await bot.store.pruneModMessages(30);
       await bot.store.pruneMessageCache(7);
