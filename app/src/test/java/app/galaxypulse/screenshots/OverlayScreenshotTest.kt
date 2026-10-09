@@ -4,7 +4,7 @@ import android.app.Application
 import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -197,7 +197,7 @@ class OverlayScreenshotTest {
     @Composable
     private fun Stage(kind: ActivityKind, payload: ActivityPayload, expanded: Boolean, art: ArtworkBundle?, light: Boolean, settings: PulseSettings) {
         val density = LocalDensity.current
-        BoxWithConstraints(Modifier.size(411.dp, 470.dp).background(if (light) Color(0xFFEDEFF6) else Color(0xFF12141F))) {
+        Box(Modifier.size(411.dp, 470.dp).background(if (light) Color(0xFFEDEFF6) else Color(0xFF12141F))) {
             val d = density.density
             val w = (411 * d).roundToInt()
             val h = (470 * d).roundToInt()
@@ -224,7 +224,7 @@ class OverlayScreenshotTest {
     private fun card(name: String, payload: BluetoothPayload) {
         rule.setContent {
             GalaxyPulseTheme {
-                androidx.compose.foundation.layout.Box(
+                Box(
                     Modifier.size(411.dp, (BluetoothCardDimens.CARD_HEIGHT_DP + 40).dp).background(Color(0xFF12141F)),
                     contentAlignment = Alignment.BottomCenter,
                 ) {
