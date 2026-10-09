@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "app.galaxypulse"
+    namespace = "app.flux"
 
     // The current AndroidX releases (core 1.19, lifecycle 2.11) require compiling against API 37.
     // targetSdk stays at 36: compileSdk only unlocks newer APIs, it does not change runtime behaviour.
@@ -13,7 +13,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "app.galaxypulse"
+        applicationId = "app.flux"
         // Android 12 (API 31): BLUETOOTH_CONNECT/SCAN runtime permissions, createWindowContext(),
         // RenderEffect. Every Galaxy S phone from the S21 up ships with at least this.
         minSdk = 31

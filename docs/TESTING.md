@@ -36,7 +36,7 @@ Legend: ✅ verified by CI · ◐ partly verified (logic yes, platform interacti
 ./gradlew testDebugUnitTest -Pscreenshots   # renders PNGs to app/build/screenshots (Robolectric)
 ```
 
-CI publishes the APK (`galaxy-pulse-debug-apk`), unit-test and lint reports as artifacts, and pushes the
+CI publishes the APK (`flux-debug-apk`), unit-test and lint reports as artifacts, and pushes the
 rendered PNGs to the `ci-screenshots` branch.
 
 ## Device test plan

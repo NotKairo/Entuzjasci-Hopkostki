@@ -1,6 +1,6 @@
 # Reference research, licenses and attribution
 
-Galaxy Pulse was designed after reading the projects below (Phase 1). **No source code or assets from
+Flux was designed after reading the projects below (Phase 1). **No source code or assets from
 any of them were copied.** Where a project's license is restrictive or absent, only publicly documented
 Android behaviour was learned from it and the implementation here is independent.
 

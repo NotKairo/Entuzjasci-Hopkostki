@@ -3,7 +3,7 @@
 What Android allows, what we do about it, and what the app does **not** claim.
 
 ## Overlay window
-| Constraint | Consequence in Galaxy Pulse |
+| Constraint | Consequence in Flux |
 |---|---|
 | `TYPE_APPLICATION_OVERLAY` is layered **below** the status bar / navigation bar / IME. | Status-bar icons can draw on top of the overlay's upper region. We never promise to draw above SystemUI. The interactive pill is placed below the status-bar band. |
 | The status-bar window receives touches in its own area. | Compact pill is not placed inside the status bar. Expanded card keeps controls below the status bar; only artwork/gradient extends upward. |

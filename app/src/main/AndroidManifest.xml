@@ -41,12 +41,12 @@
     </queries>
 
     <application
-        android:name=".PulseApp"
+        android:name=".FluxApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.GalaxyPulse">
+        android:theme="@style/Theme.Flux">
 
         <activity
             android:name=".MainActivity"
@@ -59,7 +59,7 @@
         </activity>
 
         <service
-            android:name=".overlay.PulseOverlayService"
+            android:name=".overlay.FluxOverlayService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
@@ -69,7 +69,7 @@
 
         <!-- Bound by Android after the user grants notification access. -->
         <service
-            android:name=".notifications.PulseNotificationListener"
+            android:name=".notifications.FluxNotificationListener"
             android:exported="true"
             android:label="@string/app_name"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">

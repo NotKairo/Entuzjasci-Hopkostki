@@ -1,24 +1,24 @@
 # Architecture
 
-Galaxy Pulse is a single Gradle module (`:app`) organised by package. A multi-module split would add
+Flux is a single Gradle module (`:app`) organised by package. A multi-module split would add
 build cost without adding isolation that packages and the pure/Android boundary below don't already give.
 
 ```
-app.galaxypulse
-├── PulseApp, AppGraph          application + hand-wired dependency container (no DI framework)
-├── settings/                   PulseSettings (immutable model), SettingsRepository (DataStore)
+app.flux
+├── FluxApp, AppGraph          application + hand-wired dependency container (no DI framework)
+├── settings/                   FluxSettings (immutable model), SettingsRepository (DataStore)
 ├── engine/                     ★ pure: ActivityScheduler (state machine), EventDeduper, MediaEntryTracker
-│                               PulseEngine (glue: sources → scheduler events), Simulator (test events)
+│                               FluxEngine (glue: sources → scheduler events), Simulator (test events)
 ├── overlay/                    ★ pure: OverlayGeometry, WindowPlanner
-│                               OverlayWindowHost (WindowManager), PulseOverlayService (foreground service),
+│                               OverlayWindowHost (WindowManager), FluxOverlayService (foreground service),
 │                               DisplayInfoReader, OverlayLifecycleOwner, OutsideAwareLayout
 ├── ui/design/                  tokens: colours, shapes, type, spacing, sizes; theme; vector icon set
 ├── ui/anim/                    motion config + springs, interruptible frame animator, gestures, haptics
-├── ui/overlay/                 the pill: PulseOverlay, MediaScene, ActivityScenes, BluetoothCard, components
+├── ui/overlay/                 the pill: FluxOverlay, MediaScene, ActivityScenes, BluetoothCard, components
 ├── ui/app/                     the settings app screens
 ├── media/                      MediaRepository (MediaSessionManager), MediaSessionPicker, models
 ├── artwork/                    ArtworkProcessor (decode/crop/blur/palette/cache), ColorMath, ImageBlur
-├── notifications/              PulseNotificationListener, NotificationRepository, privacy rules
+├── notifications/              FluxNotificationListener, NotificationRepository, privacy rules
 ├── battery/                    BatteryRepository (event driven), BatteryEventDetector
 ├── bluetooth/                  BluetoothRepository (events + pairing), DeviceClassifier, HeadsetBatteryParser
 ├── timers/                     TimerRepository (DataStore + AlarmManager), TimerMath/StopwatchMath, notifier
@@ -33,7 +33,7 @@ be unit-tested on the JVM (155 tests; see `app/src/test`).
 ```
  MediaSessionManager ─┐
  NotificationListener ─┤                                         ┌─ OverlayWindowHost ── top pill window
- BatteryManager ───────┼─► repositories ─► PulseEngine ─► state ─┤        (WindowManager, Compose)
+ BatteryManager ───────┼─► repositories ─► FluxEngine ─► state ─┤        (WindowManager, Compose)
  Bluetooth broadcasts ─┤     (hot flows)   (applies settings,    └─ bottom card window (Bluetooth)
  Timer/stopwatch store ┘                    maps to events)
                                               │  ▲
@@ -43,7 +43,7 @@ be unit-tested on the JVM (155 tests; see `app/src/test`).
 ```
 
 * Each source is a repository exposing a `StateFlow`/`SharedFlow`. They hold no overlay logic.
-* `PulseEngine` turns source changes into `SchedulerEvent`s, applying the user's settings (enabled
+* `FluxEngine` turns source changes into `SchedulerEvent`s, applying the user's settings (enabled
   events, timeouts, per-app rules, priority order). It also owns the real implementation of every action
   the overlay can ask for (media transport, timer buttons, notification actions, Bluetooth connect).
 * `ActivityScheduler.reduce(state, event, now)` is a pure function. The engine sleeps until

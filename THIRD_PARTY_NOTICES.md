@@ -17,7 +17,7 @@ The Apache-2.0 NOTICE obligation for these is satisfied by this file and by the 
 ## Projects studied but **not** included
 
 The following were read for architecture, platform behaviour and documented Android limitations while
-planning Galaxy Pulse. **No source code, assets, strings or artwork were copied from any of them.**
+planning Flux. **No source code, assets, strings or artwork were copied from any of them.**
 Where a license is restrictive or absent, only publicly documented Android platform behaviour was used.
 
 | Project | License found | Use |

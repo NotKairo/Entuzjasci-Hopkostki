@@ -1,4 +1,4 @@
-# Galaxy Pulse
+# Flux
 
 A Samsung One UI–inspired, Dynamic-Island-style **live activity overlay** for Android: a small floating
 pill that becomes a music player, a timer, a charging card, a notification, and an animated headphone
@@ -15,7 +15,7 @@ connection card. Native Kotlin + Jetpack Compose. No website, no React Native, n
 The APK is built by GitHub Actions (`.github/workflows/android.yml`), not on a developer machine.
 
 1. Open the repository's **Actions** tab → the latest *Android build* run on this branch.
-2. Download the artifact **`galaxy-pulse-debug-apk`** and unzip it → `app-debug.apk`.
+2. Download the artifact **`flux-debug-apk`** and unzip it → `app-debug.apk`.
 3. Install: `adb install -r app-debug.apk` (recommended), or copy it to the phone and open it.
    Enable *Install unknown apps* for your file manager if asked.
 
@@ -39,7 +39,7 @@ fixed signing key. CI runs exactly the command above.
 
 ## First run
 
-Open **Galaxy Pulse → Setup**. Nothing is granted silently; every item explains why and opens the real
+Open **Flux → Setup**. Nothing is granted silently; every item explains why and opens the real
 Android screen:
 
 | Permission | Why | Needed for |
@@ -54,7 +54,7 @@ Android screen:
 There is **no INTERNET permission**. Android 13+ shows *Restricted setting* for sideloaded apps; the Setup
 screen explains the *App info → ⋮ → Allow restricted settings* step.
 
-Then turn on **Show the Pulse overlay** and use the **Test** tab to fire sample events.
+Then turn on **Show the Flux overlay** and use the **Test** tab to fire sample events.
 
 ## What it does
 
@@ -95,4 +95,4 @@ island concept is shared with **DynamicIslandMusic by Bryan Guerra (@bguerraDev)
 "dynamic island" projects, credited here and in the app. Lottie (Apache-2.0) and AndroidX/Compose/Kotlin
 (Apache-2.0) are used as libraries — see `THIRD_PARTY_NOTICES.md`.
 
-This repository does not yet contain a LICENSE file for Galaxy Pulse itself: choose one before sharing it.
+This repository does not yet contain a LICENSE file for Flux itself: choose one before sharing it.

@@ -1,4 +1,4 @@
-# Builds Galaxy Pulse on GitHub's runners (which ship the Android SDK) and publishes the APK as a
+# Builds Flux on GitHub's runners (which ship the Android SDK) and publishes the APK as a
 # workflow artifact. Local reproduction (needs JDK 17+ and the Android SDK):
 #   ./gradlew assembleDebug testDebugUnitTest lintDebug
 name: Android build
@@ -68,7 +68,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: galaxy-pulse-debug-apk
+          name: flux-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
           retention-days: 30

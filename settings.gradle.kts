@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "GalaxyPulse"
+rootProject.name = "Flux"
 include(":app")
