@@ -6,8 +6,10 @@ plugins {
 android {
     namespace = "app.galaxypulse"
 
+    // The current AndroidX releases (core 1.19, lifecycle 2.11) require compiling against API 37.
+    // targetSdk stays at 36: compileSdk only unlocks newer APIs, it does not change runtime behaviour.
     compileSdk {
-        version = release(36)
+        version = release(37)
     }
 
     defaultConfig {
@@ -71,8 +73,6 @@ android {
         // Lint runs as its own CI step so a lint problem never blocks the APK artifact.
         abortOnError = true
         checkReleaseBuilds = false
-        htmlReport = true
-        xmlReport = true
         disable += setOf("GradleDependency", "NewerVersionAvailable", "OldTargetApi")
     }
 }

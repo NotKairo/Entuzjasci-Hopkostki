@@ -1,5 +1,6 @@
 # Builds Galaxy Pulse on GitHub's runners (which ship the Android SDK) and publishes the APK as a
-# workflow artifact. Local reproduction: ./gradlew testDebugUnitTest assembleDebug lintDebug
+# workflow artifact. Local reproduction (needs JDK 17+ and the Android SDK):
+#   ./gradlew assembleDebug testDebugUnitTest lintDebug
 name: Android build
 
 on:
@@ -30,15 +31,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Android SDK packages
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.0.0" > /dev/null
 
-      - name: Unit tests
-        run: bash ./gradlew --no-daemon --stacktrace testDebugUnitTest
-
-      - name: Assemble debug APK
-        run: bash ./gradlew --no-daemon --stacktrace assembleDebug
+      # One Gradle invocation; --continue so a failing test/lint task never hides the APK or the
+      # other results. The log is teed to build.log for the failure digest below.
+      - name: Build APK, run unit tests, run lint
+        run: bash -eo pipefail -c './gradlew --no-daemon --continue --console=plain assembleDebug testDebugUnitTest lintDebug 2>&1 | tee build.log'
 
       - name: APK summary (size, signature, checksum)
+        if: always() && hashFiles('app/build/outputs/apk/debug/*.apk') != ''
         run: |
           apk=$(ls app/build/outputs/apk/debug/*.apk | head -1)
           ls -l "$apk"
@@ -46,11 +47,12 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk" | head -3
 
       - name: Upload APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: galaxy-pulse-debug-apk
           path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Upload unit-test reports
@@ -62,9 +64,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Lint
-        run: bash ./gradlew --no-daemon --stacktrace lintDebug
-
       - name: Upload lint reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -73,3 +72,17 @@ jobs:
           path: app/build/reports/lint-results-debug.*
           if-no-files-found: ignore
           retention-days: 14
+
+      # Kept last so the interesting part is at the very end of the job log.
+      - name: Failure digest
+        if: failure()
+        run: |
+          strip() { sed -E 's|/home/runner/work/[^/]+/[^/]+/||g' | cut -c1-260; }
+          echo "=== Kotlin / Java compiler errors ==="
+          grep -nE "^e: |: error: " build.log | strip | head -60 || true
+          echo "=== Gradle: what went wrong ==="
+          grep -n -A10 "What went wrong" build.log | strip | head -60 || true
+          echo "=== Failed tests ==="
+          grep -nE " FAILED$|AssertionError|AssertionFailedError" build.log | strip | head -30 || true
+          echo "=== Lint ==="
+          grep -nE "^Lint found|Error:|\[[A-Za-z]+\]$" build.log | strip | head -40 || true
