@@ -81,5 +81,7 @@ sealed interface SchedulerEvent {
     data class Remove(val key: String) : SchedulerEvent
     data class Dismiss(val key: String) : SchedulerEvent
     data class SetExpanded(val key: String, val expanded: Boolean) : SchedulerEvent
+    /** The user changed the priority order; apply it to entries that are already live. */
+    data class Rerank(val config: PriorityConfig) : SchedulerEvent
     data object Tick : SchedulerEvent
 }

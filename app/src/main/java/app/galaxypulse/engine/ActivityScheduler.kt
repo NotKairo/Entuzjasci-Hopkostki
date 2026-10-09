@@ -23,6 +23,7 @@ object ActivityScheduler {
             is SchedulerEvent.Remove -> remove(state, event.key)
             is SchedulerEvent.Dismiss -> dismiss(state, event.key)
             is SchedulerEvent.SetExpanded -> setExpanded(state, event.key, event.expanded)
+            is SchedulerEvent.Rerank -> rerank(state, event.config)
             SchedulerEvent.Tick -> state
         }
         return normalize(changed, now)
@@ -102,6 +103,14 @@ object ActivityScheduler {
             state.expandedKey == key -> state.copy(expandedKey = null)
             else -> state
         }
+    }
+
+    private fun rerank(state: SchedulerState, config: PriorityConfig): SchedulerState {
+        val updated = state.entries.mapValues { (_, e) ->
+            val rank = config.rankOf(e.kind)
+            if (rank == e.rank) e else e.copy(rank = rank)
+        }
+        return if (updated == state.entries) state else state.copy(entries = updated)
     }
 
     private fun isEligible(state: SchedulerState, e: ActivityEntry): Boolean {

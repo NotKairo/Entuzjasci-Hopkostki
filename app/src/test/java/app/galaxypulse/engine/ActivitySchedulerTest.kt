@@ -278,4 +278,24 @@ class ActivitySchedulerTest {
         s = s.after(Post(persistent("call", ActivityKind.Call, at = 2)), 2)
         assertEquals("call", s.frontKey)
     }
+
+    @Test
+    fun rerankingAppliesToEntriesAlreadyLive() {
+        var s = empty.after(Post(persistent("timer", ActivityKind.Timer)), 0)
+            .after(Post(persistent("media", ActivityKind.Media, at = 1)), 1)
+        assertEquals("timer", s.frontKey)
+        s = s.after(SchedulerEvent.Rerank(PriorityConfig(mapOf(ActivityKind.Media to 1))), 2)
+        assertEquals("media", s.frontKey)
+        assertEquals(1, s.entries.getValue("media").rank)
+        // Back to defaults.
+        s = s.after(SchedulerEvent.Rerank(PriorityConfig()), 3)
+        assertEquals("timer", s.frontKey)
+    }
+
+    @Test
+    fun rerankWithNoChangeKeepsTheSameState() {
+        val s = empty.after(Post(persistent("media", ActivityKind.Media)), 0)
+        val after = s.after(SchedulerEvent.Rerank(PriorityConfig()), 1)
+        assertSame(s.entries, after.entries)
+    }
 }
