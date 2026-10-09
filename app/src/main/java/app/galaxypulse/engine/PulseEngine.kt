@@ -56,6 +56,10 @@ class PulseEngine(private val graph: AppGraph) {
     private val _bluetoothCard = MutableStateFlow<BluetoothCardModel?>(null)
     val bluetoothCard: StateFlow<BluetoothCardModel?> = _bluetoothCard
 
+    private val _dragging = MutableStateFlow(false)
+    /** True while the user drags the pill; the window host widens the window for the travel. */
+    val dragging: StateFlow<Boolean> = _dragging
+
     private val _artwork = MutableStateFlow<ArtworkBundle?>(null)
     /** Cover for the media entry: a simulated one during tests, otherwise the real session's. */
     val artwork: StateFlow<ArtworkBundle?> = _artwork
@@ -318,6 +322,10 @@ class PulseEngine(private val graph: AppGraph) {
         override fun dismiss(key: String) {
             if (key.startsWith("bt:")) hideCard()
             dispatch(SchedulerEvent.Dismiss(key))
+        }
+
+        override fun setDragging(active: Boolean) {
+            _dragging.value = active
         }
 
         override fun collapse() {

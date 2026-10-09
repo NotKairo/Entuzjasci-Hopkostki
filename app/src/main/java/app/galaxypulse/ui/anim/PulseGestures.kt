@@ -64,6 +64,7 @@ fun Modifier.pillGestures(
     offscreenPx: Float,
     onTap: () -> Unit,
     onDismiss: () -> Unit,
+    onDragActive: (Boolean) -> Unit = {},
 ): Modifier = this
     .pointerInput(tapEnabled) {
         detectTapGestures(
@@ -91,15 +92,22 @@ fun Modifier.pillGestures(
             } else {
                 state.dragX.animateTo(0f, PulseMotion.settleSpring(state.config))
             }
+            onDragActive(false)
         }
 
         detectHorizontalDragGestures(
             onDragStart = {
                 lastTime = SystemClock.uptimeMillis()
                 velocityPxPerSec = 0f
+                onDragActive(true)
             },
             onDragEnd = { state.scope.launch { settle() } },
-            onDragCancel = { state.scope.launch { state.dragX.animateTo(0f, PulseMotion.settleSpring(state.config)) } },
+            onDragCancel = {
+                state.scope.launch {
+                    state.dragX.animateTo(0f, PulseMotion.settleSpring(state.config))
+                    onDragActive(false)
+                }
+            },
         ) { change, dragAmount ->
             change.consume()
             val now = SystemClock.uptimeMillis()

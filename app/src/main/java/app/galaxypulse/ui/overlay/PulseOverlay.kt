@@ -158,6 +158,8 @@ private fun PillContent(
         actions.dismiss(entry.key)
     }
 
+    val actionsLatest = rememberUpdatedState(actions)
+
     val origin = ui.windowOrigin
     val squash = PulseMotion.pulseAmount(ui.motion)
     val dismissDistance = with(LocalDensity.current) { 72.dp.toPx() }
@@ -181,6 +183,7 @@ private fun PillContent(
                     offscreenPx = offscreen,
                     onTap = { onTapLatest.value() },
                     onDismiss = { onDismissLatest.value() },
+                    onDragActive = { active -> actionsLatest.value.setDragging(active) },
                 )
                 .graphicsLayer {
                     val s = gestures.pressScale.value * (0.88f + 0.12f * appear.value)

@@ -111,9 +111,10 @@ class OverlayWindowHost(private val service: Service, private val graph: AppGrap
 
         val engine = graph.engine
         scope.launch {
-            combine(engine.state, graph.settings, displayInfo, engine.artwork, screenAllowed) { state, settings, display, artwork, allowed ->
-                Inputs(state, settings, display, artwork, allowed)
-            }.collect(::renderTop)
+            val base = combine(engine.state, graph.settings, displayInfo, engine.artwork, screenAllowed) { state, settings, display, artwork, allowed ->
+                Inputs(state, settings, display, artwork, allowed, dragging = false)
+            }
+            combine(base, engine.dragging) { inputs, dragging -> inputs.copy(dragging = dragging) }.collect(::renderTop)
         }
         scope.launch {
             combine(engine.bluetoothCard, screenAllowed, graph.settings, displayInfo) { model, allowed, settings, display ->
@@ -154,6 +155,8 @@ class OverlayWindowHost(private val service: Service, private val graph: AppGrap
         val display: DisplayInfo,
         val artwork: ArtworkBundle?,
         val allowed: Boolean,
+        /** The user is swiping the pill sideways: it needs the full width to travel in. */
+        val dragging: Boolean,
     )
 
     private fun renderTop(inputs: Inputs) {
@@ -189,7 +192,8 @@ class OverlayWindowHost(private val service: Service, private val graph: AppGrap
             ActivitySizes.expanded(kind),
         )
         val pad = (WINDOW_PAD_DP * display.density).roundToInt()
-        val required = WindowPlanner.required(layout, expanded, pad, display.widthPx, display.heightPx)
+        val tight = WindowPlanner.required(layout, expanded, pad, display.widthPx, display.heightPx)
+        val required = if (inputs.dragging) tight.copy(left = 0, right = display.widthPx) else tight
         val plan = WindowPlanner.plan(topRect, required)
 
         // Grow the window *before* the animation starts so a spring never gets clipped...

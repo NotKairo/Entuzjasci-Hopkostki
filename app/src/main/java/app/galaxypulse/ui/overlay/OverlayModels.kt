@@ -70,6 +70,9 @@ interface OverlayActions {
     fun openNotification(sbnKey: String)
     fun notificationAction(sbnKey: String, index: Int)
     fun bluetooth(command: BluetoothCommand)
+
+    /** True while the user is dragging the pill sideways, so the host can widen the window for the travel. */
+    fun setDragging(active: Boolean) = Unit
 }
 
 object NoOpOverlayActions : OverlayActions {

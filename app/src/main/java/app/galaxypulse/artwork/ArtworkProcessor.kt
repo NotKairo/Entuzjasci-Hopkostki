@@ -55,6 +55,10 @@ class ArtworkProcessor(context: Context) {
     }
 
     private fun build(key: String, square: Bitmap): ArtworkBundle {
+        // The thumbnail owns its pixels, so the source can be recycled by the caller afterwards.
+        // (Copied first: for a cover that is already tiny, the "scaled" bitmap below can be the same instance.)
+        val thumb = square.copy(Bitmap.Config.ARGB_8888, false)
+
         // Palette + backdrop come from a tiny version of the same pixels as the thumbnail.
         val tiny = Bitmap.createScaledBitmap(square, TINY_SIZE, TINY_SIZE, true)
         val pixels = IntArray(TINY_SIZE * TINY_SIZE)
@@ -68,10 +72,8 @@ class ArtworkProcessor(context: Context) {
         val bgSource = base?.rgb ?: FALLBACK_RGB
         val bg = ColorMath.restrainedBackground(bgSource)
         val accent = ColorMath.restrainedAccent(vivid?.rgb ?: bgSource, bg)
-        tiny.recycle()
+        if (tiny !== square) tiny.recycle()
 
-        // The thumbnail owns its pixels, so the source can be recycled by the caller.
-        val thumb = square.copy(Bitmap.Config.ARGB_8888, false)
         return ArtworkBundle(
             key = key,
             thumb = thumb.asImageBitmap(),
