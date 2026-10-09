@@ -138,6 +138,24 @@ jobs:
           grep -n -A12 "What went wrong" shots.log | strip | head -40 || true
           grep -nE " FAILED$|Exception|Error" shots.log | strip | head -40 || true
           ls -la app/build/screenshots 2>/dev/null || echo "no screenshots directory"
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          shown = 0
+          for path in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+              root = ET.parse(path).getroot()
+              for case in root.iter('testcase'):
+                  for f in list(case.iter('failure')) + list(case.iter('error')):
+                      if shown < 2:
+                          print('--- first failure in', case.get('name'), '---')
+                          print('\n'.join((f.get('message') or '')[:400].splitlines()[:3]))
+                          print('\n'.join((f.text or '').splitlines()[:30]))
+                          shown += 1
+              so = root.find('system-out')
+              if so is not None and so.text and 'captureToImage' in so.text:
+                  print('--- system-out excerpt ---')
+                  print('\n'.join(so.text.splitlines()[:40]))
+                  break
+          PY
 
       - name: Publish screenshots to branch ci-screenshots
         if: always() && hashFiles('app/build/screenshots/*.png') != ''

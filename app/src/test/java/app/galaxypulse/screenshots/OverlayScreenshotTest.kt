@@ -18,8 +18,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.core.view.drawToBitmap
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
@@ -92,7 +94,7 @@ import kotlin.math.roundToInt
 class OverlayScreenshotTest {
 
     @get:Rule
-    val rule = createComposeRule()
+    val rule = createAndroidComposeRule<ComponentActivity>()
 
     private val app: Application get() = ApplicationProvider.getApplicationContext()
     private val reduced = MotionConfig(reduced = true)
@@ -237,8 +239,29 @@ class OverlayScreenshotTest {
 
     private fun save(name: String) {
         rule.waitForIdle()
-        val bitmap = rule.onRoot().captureToImage().asAndroidBitmap()
+        val bitmap = try {
+            rule.onRoot().captureToImage().asAndroidBitmap()
+        } catch (t: Throwable) {
+            // Diagnostics for CI (printed in the failure digest) + a software-draw fallback.
+            println("captureToImage failed for $name: $t")
+            t.stackTrace.take(25).forEach { println("    at $it") }
+            t.cause?.let { println("  caused by: $it") }
+            softwareCapture()
+        }
         val dir = File("build/screenshots").apply { mkdirs() }
         FileOutputStream(File(dir, "$name.png")).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    /** Draws the compose root view with a software canvas, cropped to the semantics root bounds. */
+    private fun softwareCapture(): Bitmap {
+        val bounds = rule.onRoot().fetchSemanticsNode().boundsInWindow
+        var full: Bitmap? = null
+        rule.runOnUiThread { full = rule.activity.window.decorView.drawToBitmap() }
+        val src = checkNotNull(full)
+        val l = bounds.left.toInt().coerceIn(0, src.width - 1)
+        val t = bounds.top.toInt().coerceIn(0, src.height - 1)
+        val w = bounds.width.toInt().coerceIn(1, src.width - l)
+        val h = bounds.height.toInt().coerceIn(1, src.height - t)
+        return Bitmap.createBitmap(src, l, t, w, h)
     }
 }
