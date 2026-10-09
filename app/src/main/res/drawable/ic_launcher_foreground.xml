@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- A rounded pill with a small accent dot: original artwork, drawn for this project. -->
+    <path android:pathData="M30,44 L78,44 A10,10 0 0 1 78,64 L30,64 A10,10 0 0 1 30,44 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="78"
+                android:endY="54"
+                android:startX="30"
+                android:startY="54"
+                android:type="linear">
+                <item
+                    android:color="#FF3A7BFF"
+                    android:offset="0.0" />
+                <item
+                    android:color="#FF7C6BFF"
+                    android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M42,54 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+</vector>
