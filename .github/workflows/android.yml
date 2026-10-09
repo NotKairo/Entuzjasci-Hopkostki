@@ -1,0 +1,173 @@
+# Builds Flux on GitHub's runners (which ship the Android SDK) and publishes the APK as a
+# workflow artifact. Local reproduction (needs JDK 17+ and the Android SDK):
+#   ./gradlew assembleDebug testDebugUnitTest lintDebug
+name: Android build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Android SDK packages
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.0.0" > /dev/null
+
+      # One Gradle invocation; --continue so a failing test/lint task never hides the APK or the
+      # other results. The log is teed to build.log for the failure digest below.
+      - name: Build APK, run unit tests, run lint
+        run: bash -eo pipefail -c './gradlew --no-daemon --continue --console=plain assembleDebug testDebugUnitTest lintDebug 2>&1 | tee build.log'
+
+      - name: Test and lint totals
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          t = f = e = s = 0
+          for path in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+              r = ET.parse(path).getroot()
+              t += int(r.get('tests', 0)); f += int(r.get('failures', 0)); e += int(r.get('errors', 0)); s += int(r.get('skipped', 0))
+          print(f"UNIT TESTS: total={t} failed={f} errors={e} skipped={s}")
+          errors = warnings = 0
+          for path in glob.glob('app/build/reports/lint-results-debug.xml'):
+              for issue in ET.parse(path).getroot().iter('issue'):
+                  sev = issue.get('severity')
+                  errors += sev in ('Error', 'Fatal'); warnings += sev == 'Warning'
+          print(f"LINT: errors={errors} warnings={warnings}")
+          PY
+
+      - name: APK summary (size, signature, checksum)
+        if: always() && hashFiles('app/build/outputs/apk/debug/*.apk') != ''
+        run: |
+          apk=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          ls -l "$apk"
+          sha256sum "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk" | head -3
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flux-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload unit-test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Kept last so the interesting part is at the very end of the job log.
+      - name: Failure digest
+        if: failure()
+        run: |
+          strip() { sed -E 's|/home/runner/work/[^/]+/[^/]+/||g' | cut -c1-260; }
+          echo "=== Kotlin / Java compiler errors ==="
+          grep -nE "^e: |: error: " build.log | strip | head -60 || true
+          echo "=== Gradle: what went wrong ==="
+          grep -n -A10 "What went wrong" build.log | strip | head -60 || true
+          echo "=== Failed tests ==="
+          grep -nE " FAILED$|AssertionError|AssertionFailedError" build.log | strip | head -30 || true
+          echo "=== Lint ==="
+          grep -nE "^Lint found|Error:|\[[A-Za-z]+\]$" build.log | strip | head -40 || true
+
+  # Renders the real overlay composables to PNGs (Robolectric, native graphics) and publishes them to the
+  # `ci-screenshots` branch so layouts can be reviewed without a phone. Isolated: it can never fail the
+  # build job, and it does not touch the APK.
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Android SDK packages
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.0.0" > /dev/null
+
+      - name: Render screenshots
+        run: bash -eo pipefail -c './gradlew --no-daemon --console=plain testDebugUnitTest -Pscreenshots 2>&1 | tee shots.log'
+
+      - name: Screenshot failure digest
+        if: failure()
+        run: |
+          strip() { sed -E 's|/home/runner/work/[^/]+/[^/]+/||g' | cut -c1-260; }
+          grep -nE "^e: |: error: " shots.log | strip | head -40 || true
+          grep -n -A12 "What went wrong" shots.log | strip | head -40 || true
+          grep -nE " FAILED$|Exception|Error" shots.log | strip | head -40 || true
+          ls -la app/build/screenshots 2>/dev/null || echo "no screenshots directory"
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          shown = 0
+          for path in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+              root = ET.parse(path).getroot()
+              for case in root.iter('testcase'):
+                  for f in list(case.iter('failure')) + list(case.iter('error')):
+                      if shown < 2:
+                          print('--- first failure in', case.get('name'), '---')
+                          print('\n'.join((f.get('message') or '')[:400].splitlines()[:3]))
+                          print('\n'.join((f.text or '').splitlines()[:30]))
+                          shown += 1
+              so = root.find('system-out')
+              if so is not None and so.text and 'captureToImage' in so.text:
+                  print('--- system-out excerpt ---')
+                  print('\n'.join(so.text.splitlines()[:40]))
+                  break
+          PY
+
+      - name: Publish screenshots to branch ci-screenshots
+        if: always() && hashFiles('app/build/screenshots/*.png') != ''
+        run: |
+          set -e
+          sha=$(git rev-parse --short HEAD)
+          mkdir -p /tmp/shots && cp app/build/screenshots/*.png /tmp/shots/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan shots-tmp
+          cp /tmp/shots/*.png .
+          echo "Screenshots rendered by CI from commit $sha. Generated; do not edit." > README.md
+          git add -- *.png README.md
+          git commit -q -m "Screenshots for $sha"
+          git push --force origin HEAD:refs/heads/ci-screenshots

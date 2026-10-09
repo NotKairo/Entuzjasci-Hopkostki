@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="flux_black">#FF000000</color>
+    <color name="flux_ink">#FF05060B</color>
+    <color name="flux_violet">#FF7C6BFF</color>
+    <color name="flux_blue">#FF3A7BFF</color>
+    <!-- Launcher icon background: the logo is designed on a light ground. -->
+    <color name="flux_icon_bg">#FFF4F3F0</color>
+</resources>
