@@ -52,10 +52,16 @@ android {
         buildConfig = true
     }
 
+    // Screenshot tests (Robolectric, native graphics) render the real overlay composables to PNGs for
+    // review. They are opt-in (-Pscreenshots) so the default unit-test run stays fast and pure-JVM.
+    val screenshots = project.hasProperty("screenshots")
     testOptions {
         unitTests {
-            // Pure-logic tests only; Android stubs return defaults instead of throwing.
             isReturnDefaultValues = true
+            isIncludeAndroidResources = screenshots
+            all { test ->
+                if (screenshots) test.include("**/screenshots/**") else test.exclude("**/screenshots/**")
+            }
         }
     }
 
@@ -99,7 +105,10 @@ dependencies {
     implementation(libs.lottie.compose)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.compose.ui.test.junit4)
 }

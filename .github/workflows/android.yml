@@ -86,3 +86,53 @@ jobs:
           grep -nE " FAILED$|AssertionError|AssertionFailedError" build.log | strip | head -30 || true
           echo "=== Lint ==="
           grep -nE "^Lint found|Error:|\[[A-Za-z]+\]$" build.log | strip | head -40 || true
+
+  # Renders the real overlay composables to PNGs (Robolectric, native graphics) and publishes them to the
+  # `ci-screenshots` branch so layouts can be reviewed without a phone. Isolated: it can never fail the
+  # build job, and it does not touch the APK.
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Android SDK packages
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.0.0" > /dev/null
+
+      - name: Render screenshots
+        run: bash -eo pipefail -c './gradlew --no-daemon --console=plain testDebugUnitTest -Pscreenshots 2>&1 | tee shots.log'
+
+      - name: Screenshot failure digest
+        if: failure()
+        run: |
+          strip() { sed -E 's|/home/runner/work/[^/]+/[^/]+/||g' | cut -c1-260; }
+          grep -nE "^e: |: error: " shots.log | strip | head -40 || true
+          grep -n -A12 "What went wrong" shots.log | strip | head -40 || true
+          grep -nE " FAILED$|Exception|Error" shots.log | strip | head -40 || true
+          ls -la app/build/screenshots 2>/dev/null || echo "no screenshots directory"
+
+      - name: Publish screenshots to branch ci-screenshots
+        if: always() && hashFiles('app/build/screenshots/*.png') != ''
+        run: |
+          set -e
+          sha=$(git rev-parse --short HEAD)
+          mkdir -p /tmp/shots && cp app/build/screenshots/*.png /tmp/shots/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan shots-tmp
+          git rm -rf . > /dev/null 2>&1 || true
+          cp /tmp/shots/*.png .
+          echo "Screenshots rendered by CI from commit $sha. Generated; do not edit." > README.md
+          git add -A
+          git commit -q -m "Screenshots for $sha"
+          git push --force origin HEAD:refs/heads/ci-screenshots

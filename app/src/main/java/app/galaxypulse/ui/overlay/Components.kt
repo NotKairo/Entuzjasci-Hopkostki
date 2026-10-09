@@ -113,10 +113,10 @@ internal fun Modifier.placedFree(rect: () -> Rect): Modifier = layout { measurab
 
 // ── Equalizer ─────────────────────────────────────────────────────────────────────────────────
 
-/** Decorative three-bar equalizer. Animates only while [playing]; otherwise it is a static drawing. */
+/** Decorative three-bar equalizer. Animates only while [playing] and [animate]; otherwise it is a static drawing. */
 @Composable
-internal fun Equalizer(playing: Boolean, color: Color, modifier: Modifier = Modifier) {
-    if (playing) AnimatedEqualizer(color, modifier) else {
+internal fun Equalizer(playing: Boolean, color: Color, modifier: Modifier = Modifier, animate: Boolean = true) {
+    if (playing && animate) AnimatedEqualizer(color, modifier) else {
         val a = remember { mutableStateOf(0.35f) }
         val b = remember { mutableStateOf(0.6f) }
         val c = remember { mutableStateOf(0.45f) }

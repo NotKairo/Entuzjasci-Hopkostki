@@ -131,7 +131,7 @@ private fun CompactMediaLayer(
             }
             .graphicsLayer { alpha = fade() },
     ) {
-        Equalizer(playing = media.isPlaying, color = accent)
+        Equalizer(playing = media.isPlaying, color = accent, animate = !motion.reduced)
     }
 }
 
