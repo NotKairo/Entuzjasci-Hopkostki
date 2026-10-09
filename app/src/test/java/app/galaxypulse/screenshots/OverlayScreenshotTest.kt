@@ -111,6 +111,7 @@ class OverlayScreenshotTest {
         status = status, reportedPositionMs = 62_000, reportedAtElapsedMs = 0, speed = 1f, durationMs = 215_000,
         caps = TransportCaps(true, true, true, true, true), artworkKey = "shot:0", outputLabel = "Galaxy Buds2 Pro",
         customActions = listOf(MediaCustomAction("shuffle", "Shuffle", 0, "app.galaxypulse")),
+        upNext = "Midnight Drive",
     )
 
     private val clock = ClockSample(1_000_000, 1_700_000_000_000, 1)

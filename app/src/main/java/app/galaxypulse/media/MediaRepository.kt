@@ -192,7 +192,17 @@ class MediaRepository(
                 MediaCustomAction(it.action, it.name?.toString().orEmpty(), it.icon, controller.packageName)
             },
             outputLabel = outputLabel(),
+            upNext = upNext(controller, state),
         )
+    }
+
+    /** The queue entry after the active one, if the session exposes a queue at all. */
+    private fun upNext(controller: MediaController, state: PlaybackState?): String? {
+        val queue = controller.queue ?: return null
+        val activeId = state?.activeQueueItemId ?: return null
+        val index = queue.indexOfFirst { it.queueId == activeId }
+        if (index < 0) return null
+        return queue.getOrNull(index + 1)?.description?.title?.toString()?.takeIf { it.isNotBlank() }
     }
 
     private fun appLabel(packageName: String): String = try {

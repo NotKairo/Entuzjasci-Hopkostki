@@ -46,6 +46,8 @@ data class MediaSnapshot(
     val artworkKey: String?,
     val customActions: List<MediaCustomAction> = emptyList(),
     val outputLabel: String? = null,
+    /** Title of the next item in the session's own queue, when the session publishes one. */
+    val upNext: String? = null,
 ) : ActivityPayload {
 
     val isPlaying: Boolean get() = status == PlaybackStatus.Playing

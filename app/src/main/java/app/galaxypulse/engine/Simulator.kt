@@ -98,6 +98,7 @@ internal object Simulator {
             artworkKey = "sim:$trackIndex",
             customActions = listOf(MediaCustomAction("shuffle", "Shuffle", 0, "app.galaxypulse")),
             outputLabel = "Test speaker",
+            upNext = tracks[(trackIndex + 1) % tracks.size].title,
         )
     }
 

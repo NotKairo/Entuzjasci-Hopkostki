@@ -194,6 +194,10 @@ private fun ExpandedMediaLayer(
         Column {
             TrackText(media, compact = false, showArtist = true, motion = ui.motion)
             Spacer(Modifier.height(6.dp))
+            media.upNext?.let {
+                PText("Up next  ·  $it", PulseType.Label, color = PulseColors.OnSurfaceMuted)
+                Spacer(Modifier.height(2.dp))
+            }
             val footer = listOfNotNull(media.appLabel.takeIf { it.isNotBlank() }, media.outputLabel).joinToString("  ·  ")
             if (footer.isNotEmpty()) {
                 Row(

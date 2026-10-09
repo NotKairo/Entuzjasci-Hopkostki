@@ -38,6 +38,24 @@ jobs:
       - name: Build APK, run unit tests, run lint
         run: bash -eo pipefail -c './gradlew --no-daemon --continue --console=plain assembleDebug testDebugUnitTest lintDebug 2>&1 | tee build.log'
 
+      - name: Test and lint totals
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          t = f = e = s = 0
+          for path in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+              r = ET.parse(path).getroot()
+              t += int(r.get('tests', 0)); f += int(r.get('failures', 0)); e += int(r.get('errors', 0)); s += int(r.get('skipped', 0))
+          print(f"UNIT TESTS: total={t} failed={f} errors={e} skipped={s}")
+          errors = warnings = 0
+          for path in glob.glob('app/build/reports/lint-results-debug.xml'):
+              for issue in ET.parse(path).getroot().iter('issue'):
+                  sev = issue.get('severity')
+                  errors += sev in ('Error', 'Fatal'); warnings += sev == 'Warning'
+          print(f"LINT: errors={errors} warnings={warnings}")
+          PY
+
       - name: APK summary (size, signature, checksum)
         if: always() && hashFiles('app/build/outputs/apk/debug/*.apk') != ''
         run: |
