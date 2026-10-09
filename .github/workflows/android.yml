@@ -165,10 +165,9 @@ jobs:
           mkdir -p /tmp/shots && cp app/build/screenshots/*.png /tmp/shots/
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout --orphan shots-tmp
-          git rm -rf . > /dev/null 2>&1 || true
+          git switch --orphan shots-tmp
           cp /tmp/shots/*.png .
           echo "Screenshots rendered by CI from commit $sha. Generated; do not edit." > README.md
-          git add -A
+          git add -- *.png README.md
           git commit -q -m "Screenshots for $sha"
           git push --force origin HEAD:refs/heads/ci-screenshots
