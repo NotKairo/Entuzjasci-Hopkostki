@@ -1,12 +1,7 @@
 package app.galaxypulse.engine
 
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.LinearGradient
-import android.graphics.Paint
-import android.graphics.RadialGradient
-import android.graphics.Shader
 import app.galaxypulse.AppGraph
+import app.galaxypulse.artwork.SampleCover
 import app.galaxypulse.battery.BatteryAlertPayload
 import app.galaxypulse.battery.ChargingEventType
 import app.galaxypulse.battery.ChargingPayload
@@ -108,7 +103,7 @@ internal object Simulator {
 
     private fun startMusic(engine: PulseEngine, graph: AppGraph, status: PlaybackStatus) {
         graph.mainScope.launch {
-            val artwork = graph.artwork.process("sim:$trackIndex", cover(tracks[trackIndex].colors), null)
+            val artwork = graph.artwork.process("sim:$trackIndex", SampleCover.render(tracks[trackIndex].colors), null)
             engine.setSimulatedMedia(snapshot(status, engine.mediaClock(), 38_000L), artwork)
         }
     }
@@ -124,28 +119,12 @@ internal object Simulator {
             MediaCommand.Next, MediaCommand.Previous -> {
                 trackIndex = (trackIndex + 1) % tracks.size
                 graph.mainScope.launch {
-                    val artwork = graph.artwork.process("sim:$trackIndex", cover(tracks[trackIndex].colors), null)
+                    val artwork = graph.artwork.process("sim:$trackIndex", SampleCover.render(tracks[trackIndex].colors), null)
                     engine.setSimulatedMedia(snapshot(PlaybackStatus.Playing, engine.mediaClock(), 0L), artwork)
                 }
             }
             is MediaCommand.Custom, MediaCommand.OpenApp -> Unit
         }
-    }
-
-    /** A generated cover: layered gradients, nothing copyrighted. Goes through the real artwork pipeline. */
-    private fun cover(colors: IntArray): Bitmap {
-        val size = 512
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        paint.shader = LinearGradient(0f, 0f, size.toFloat(), size.toFloat(), colors, null, Shader.TileMode.CLAMP)
-        canvas.drawRect(0f, 0f, size.toFloat(), size.toFloat(), paint)
-        paint.shader = RadialGradient(size * 0.7f, size * 0.3f, size * 0.45f, 0x55FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
-        canvas.drawCircle(size * 0.7f, size * 0.3f, size * 0.45f, paint)
-        paint.shader = null
-        paint.color = 0x22000000
-        canvas.drawCircle(size * 0.25f, size * 0.8f, size * 0.3f, paint)
-        return bitmap
     }
 
     // ── Everything else ───────────────────────────────────────────────────────────────────────

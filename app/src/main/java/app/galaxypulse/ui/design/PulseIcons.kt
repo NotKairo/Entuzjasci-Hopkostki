@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 enum class PulseIcon {
     Play, Pause, Next, Previous, Plus, Close, Check,
     Bolt, Bell, Timer, Stopwatch, Bluetooth, Headphones, Earbuds, Speaker, Watch, Note, Output,
+    Gear, Pulse, Sliders, Minus, Info,
 }
 
 private class IconPart(val path: Path, val filled: Boolean, val strokeWidth: Float = 2f)
@@ -126,6 +127,29 @@ private object IconCache {
         PulseIcon.Output -> listOf(
             line(2f) { rrect(3f, 5f, 21f, 15.5f, 2.5f) },
             line(2f) { poly(8f, 19.5f, 16f, 19.5f); poly(12f, 15.5f, 12f, 19.5f) },
+        )
+        PulseIcon.Gear -> listOf(
+            line(2f) { circle(12f, 12f, 4.2f) },
+            line(2.2f) {
+                for (k in 0 until 8) {
+                    val a = Math.toRadians(k * 45.0)
+                    val c = Math.cos(a).toFloat()
+                    val sn = Math.sin(a).toFloat()
+                    poly(12f + 7.6f * c, 12f + 7.6f * sn, 12f + 9.8f * c, 12f + 9.8f * sn)
+                }
+            },
+            line(2f) { circle(12f, 12f, 7.4f) },
+        )
+        PulseIcon.Pulse -> listOf(line(2.2f) { poly(3f, 12f, 7f, 12f, 9.5f, 5f, 13.5f, 19f, 16f, 12f, 21f, 12f) })
+        PulseIcon.Sliders -> listOf(
+            line(2f) { poly(4f, 7f, 20f, 7f); poly(4f, 12f, 20f, 12f); poly(4f, 17f, 20f, 17f) },
+            fill { circle(9f, 7f, 2.6f); circle(15f, 12f, 2.6f); circle(8f, 17f, 2.6f) },
+        )
+        PulseIcon.Minus -> listOf(line(2.2f) { poly(5f, 12f, 19f, 12f) })
+        PulseIcon.Info -> listOf(
+            line(2f) { circle(12f, 12f, 8.5f) },
+            line(2.2f) { poly(12f, 11f, 12f, 16f) },
+            fill { circle(12f, 7.8f, 1.2f) },
         )
     }
 }

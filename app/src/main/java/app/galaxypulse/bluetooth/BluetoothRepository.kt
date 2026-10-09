@@ -90,7 +90,24 @@ class BluetoothRepository(
         }
     }
 
+    private var users = 0
+    private var scanHoldsRef = false
+
+    /** The overlay engine (and an active scan) each hold a reference; the receiver lives while any is held. */
     fun start() {
+        if (users++ == 0) register()
+    }
+
+    fun stop() {
+        if (users > 0 && --users == 0) unregister()
+    }
+
+    /** Call after the user grants Bluetooth permission so a waiting registration can complete. */
+    fun onPermissionsChanged() {
+        if (users > 0 && !registered) register()
+    }
+
+    private fun register() {
         if (registered || !hasConnectPermission()) return
         val main = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
@@ -110,9 +127,8 @@ class BluetoothRepository(
         registered = true
     }
 
-    fun stop() {
+    private fun unregister() {
         if (!registered) return
-        stopScan()
         appContext.unregisterReceiver(receiver)
         registered = false
         pairingJob?.cancel()
@@ -162,6 +178,10 @@ class BluetoothRepository(
             _discovered.value = emptyList()
             cardShownForScan = false
             if (bt.startDiscovery()) {
+                if (!scanHoldsRef) {
+                    scanHoldsRef = true
+                    start()
+                }
                 _scanning.value = true
                 scanJob?.cancel()
                 scanJob = scope.launch {
@@ -182,6 +202,10 @@ class BluetoothRepository(
         } catch (_: SecurityException) {
         }
         _scanning.value = false
+        if (scanHoldsRef) {
+            scanHoldsRef = false
+            stop()
+        }
     }
 
     /** Paired devices, for the per-device notification rules. */
@@ -246,7 +270,12 @@ class BluetoothRepository(
     }
 
     private fun onFound(device: BluetoothDevice) {
-        if (device.bondState == BluetoothDevice.BOND_BONDED || !isRelevant(device)) return
+        val alreadyPaired = try {
+            device.bondState == BluetoothDevice.BOND_BONDED
+        } catch (_: SecurityException) {
+            return
+        }
+        if (alreadyPaired || !isRelevant(device)) return
         val payload = payload(device, ConnectionPhase.Discovered)
         if (_discovered.value.any { it.address == payload.address }) return
         _discovered.value = _discovered.value + payload

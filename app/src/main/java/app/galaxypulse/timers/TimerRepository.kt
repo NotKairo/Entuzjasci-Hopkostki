@@ -53,6 +53,11 @@ class TimerRepository(context: Context, scope: CoroutineScope) {
     suspend fun addTimerTime(extraMs: Long) = mutateTimer { s, c -> TimerMath.addTime(s, extraMs, c) }
     suspend fun dismissTimerAlarm() = mutateTimer { s, _ -> TimerMath.cancel(s) }
 
+    /** Sets the duration the next start will use (only while no timer is active). */
+    suspend fun setTimerDuration(durationMs: Long) = mutateTimer { s, _ ->
+        if (s.phase == TimerPhase.Idle) s.copy(configuredMs = durationMs.coerceIn(1_000L, MAX_DURATION_MS)) else s
+    }
+
     /**
      * Brings the persisted timer up to date (re-anchors after a reboot, flips to Finished when due),
      * re-arms the alarm and fires [onTimerFinished] once. Safe to call from anywhere, any number of
@@ -118,5 +123,6 @@ class TimerRepository(context: Context, scope: CoroutineScope) {
 
     private companion object {
         const val REQUEST_CODE = 7001
+        const val MAX_DURATION_MS = 99L * 3_600_000L
     }
 }

@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import app.galaxypulse.R
 import app.galaxypulse.bluetooth.BluetoothPayload
 import app.galaxypulse.bluetooth.ConnectionPhase
 import app.galaxypulse.bluetooth.DeviceKind
@@ -66,6 +67,10 @@ import app.galaxypulse.ui.design.PulseColors
 import app.galaxypulse.ui.design.PulseIcon
 import app.galaxypulse.ui.design.PulseIconFill
 import app.galaxypulse.ui.design.PulseType
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieCompositionSpec
+import com.airbnb.lottie.compose.LottieConstants
+import com.airbnb.lottie.compose.rememberLottieComposition
 import kotlinx.coroutines.delay
 
 /** What the bottom card shows. [serial] changes for every genuinely new connection event. */
@@ -154,6 +159,7 @@ private fun BluetoothCard(model: BluetoothCardModel, motion: MotionConfig, actio
                 enter = fadeIn(tween(260)) + scaleIn(initialScale = 0.8f, animationSpec = spring(dampingRatio = 0.7f, stiffness = 420f)),
             ) {
                 Box(Modifier.size(112.dp), contentAlignment = Alignment.Center) {
+                    PulseRipple(active = (p.phase == ConnectionPhase.Pairing || p.phase == ConnectionPhase.Connecting) && !motion.reduced)
                     ConnectionRing(p.phase, motion)
                     DeviceIllustration(p.kind, Modifier.size(78.dp))
                     if (p.phase == ConnectionPhase.Connected) CheckBadge(motion, Modifier.align(Alignment.BottomEnd))
@@ -221,6 +227,21 @@ private fun CardActions(p: BluetoothPayload, actions: OverlayActions, haptics: P
             )
         }
     }
+}
+
+/** Decorative Lottie ripple (original artwork) radiating from the device while it connects. */
+@Composable
+private fun PulseRipple(active: Boolean) {
+    if (!active) return
+    val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(R.raw.pulse_ring))
+    LottieAnimation(
+        composition = composition,
+        iterations = LottieConstants.IterateForever,
+        modifier = Modifier.fillMaxSize().graphicsLayer {
+            scaleX = 1.25f
+            scaleY = 1.25f
+        },
+    )
 }
 
 /** Faint ring around the device; sweeps while connecting, completes when connected. */
