@@ -33,4 +33,15 @@ object TimeFormat {
         return if (h > 0) String.format(Locale.ROOT, "%d:%02d:%02d.%02d", h, m, s, centis)
         else String.format(Locale.ROOT, "%02d:%02d.%02d", m, s, centis)
     }
+
+    /** "less than a minute", "25 min", "1 h", "1 h 5 min" — for estimates such as time-to-full. */
+    fun approximate(ms: Long): String {
+        val minutes = (max(0L, ms) + 30_000L) / 60_000L
+        return when {
+            minutes <= 0L -> "less than a minute"
+            minutes < 60L -> "$minutes min"
+            minutes % 60L == 0L -> "${minutes / 60} h"
+            else -> "${minutes / 60} h ${minutes % 60} min"
+        }
+    }
 }

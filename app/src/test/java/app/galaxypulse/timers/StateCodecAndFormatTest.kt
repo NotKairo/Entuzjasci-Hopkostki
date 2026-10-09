@@ -61,4 +61,15 @@ class StateCodecAndFormatTest {
         assertEquals("01:05.42", TimeFormat.stopwatch(65_420))
         assertEquals("1:01:01.09", TimeFormat.stopwatch(3_661_090))
     }
+
+    @Test
+    fun approximateDurationsReadNaturally() {
+        assertEquals("less than a minute", TimeFormat.approximate(10_000))
+        assertEquals("1 min", TimeFormat.approximate(60_000))
+        assertEquals("25 min", TimeFormat.approximate(25 * 60_000L))
+        assertEquals("1 h", TimeFormat.approximate(60 * 60_000L))
+        assertEquals("1 h 5 min", TimeFormat.approximate(65 * 60_000L))
+        assertEquals("2 h 30 min", TimeFormat.approximate(150 * 60_000L))
+        assertEquals("less than a minute", TimeFormat.approximate(-5))
+    }
 }

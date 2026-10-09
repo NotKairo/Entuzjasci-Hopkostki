@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -129,21 +130,32 @@ private object IconCache {
     }
 }
 
+/** Fixed-size icon. */
 @Composable
 fun PulseIconView(icon: PulseIcon, tint: Color, modifier: Modifier = Modifier, size: Dp = 24.dp) {
+    PulseIconFill(icon, tint, modifier.size(size))
+}
+
+/** Icon that fills whatever size [modifier] gives it (always drawn square, centred). */
+@Composable
+fun PulseIconFill(icon: PulseIcon, tint: Color, modifier: Modifier = Modifier) {
     val parts = remember(icon) { IconCache.parts(icon) }
-    Canvas(modifier.size(size)) {
+    Canvas(modifier) {
         val s = this.size.minDimension / 24f
-        scale(s, s, pivot = Offset.Zero) {
-            for (part in parts) {
-                if (part.filled) {
-                    drawPath(part.path, tint)
-                } else {
-                    drawPath(
-                        part.path,
-                        tint,
-                        style = Stroke(width = part.strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round),
-                    )
+        val dx = (this.size.width - 24f * s) / 2f
+        val dy = (this.size.height - 24f * s) / 2f
+        translate(dx, dy) {
+            scale(s, s, pivot = Offset.Zero) {
+                for (part in parts) {
+                    if (part.filled) {
+                        drawPath(part.path, tint)
+                    } else {
+                        drawPath(
+                            part.path,
+                            tint,
+                            style = Stroke(width = part.strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round),
+                        )
+                    }
                 }
             }
         }

@@ -22,7 +22,7 @@ enum class ReducedMotionMode(val label: String) {
 }
 
 enum class NotificationContentMode(val label: String, val blurb: String) {
-    Full("Always show preview", "Title and message text are shown, even on the lock screen"),
+    Full("Show previews", "Title and text are shown; a notification marked private is still hidden while locked"),
     HideWhenLocked("Hide while locked", "App name only while the device is locked (default)"),
     AppOnly("App name only", "Never show message text"),
 }

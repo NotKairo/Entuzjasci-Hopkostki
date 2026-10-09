@@ -70,7 +70,7 @@ object PulseSizes {
     val ExpandedTimerHeight = 176.dp
     val ExpandedStopwatchHeight = 252.dp
     val ExpandedChargingHeight = 148.dp
-    val ExpandedNotificationHeight = 150.dp
+    val ExpandedNotificationHeight = 164.dp
     val ExpandedBluetoothHeight = 150.dp
     val ExpandedAlertHeight = 168.dp
 
